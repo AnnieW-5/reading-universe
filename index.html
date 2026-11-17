@@ -54,6 +54,11 @@ label{display:block;margin:14px 0 4px;font-size:14px;color:var(--mute)}
 .meta p{margin:2px 0;font-size:15px}
 .acts{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
 .note{font-size:13px;color:var(--mute);margin-top:14px}
+.li{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:14px}
+.lk{border:0;background:none;color:var(--acc);padding:10px 8px;font-size:14px}
+.tm{font:700 36px "Songti TC",serif;text-align:center;margin:4px 0;font-variant-numeric:tabular-nums}
+.txt{white-space:pre-wrap;margin:0 0 6px}
+.pg{font-size:13px;color:var(--mute)}
 </style>
 </head>
 <body>
@@ -141,15 +146,36 @@ function render(){
  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===tab));
 }
 const openSheet=h=>{$('#panel').innerHTML=h;$('#sheet').classList.add('open');$('#panel').scrollTop=0};
-const closeSheet=()=>{$('#sheet').classList.remove('open');editing=null};
+const closeSheet=()=>{$('#sheet').classList.remove('open');editing=null;nEdit=qEdit=null};
 
+let nEdit=null,qEdit=null;
+const fd=x=>{x=Math.max(0,Math.round(x));const p=n=>String(n).padStart(2,'0');return p(Math.floor(x/3600))+':'+p(Math.floor(x%3600/60))+':'+p(x%60)};
+const ds=x=>x<60?x+' 秒':dur(x);
+const dt=i=>{const d=new Date(i);return d.getFullYear()+'/'+(d.getMonth()+1)+'/'+d.getDate()};
+const elapsed=b=>{const t=b.timer;return t?t.acc+(t.running?Date.now()-t.startedAt:0):0};
+function showDetail(id){const p=$('#panel'),st=p.scrollTop,b=books.find(x=>x.book_id===id);if(!b)return closeSheet();detail(b);p.scrollTop=st}
+async function upd(b,fn){fn(b);await put('books',b);render();showDetail(b.book_id)}
 function detail(b){
- const r=b.status==='read';
+ const id=b.book_id,r=b.status==='read',t=b.timer,ss=b.sessions||[],ns=b.notes||[],qs=b.quotes||[];
+ const bt=(a,l,c)=>`<button class="btn${c?' '+c:''}" data-a="${a}" data-id="${id}">${l}</button>`;
+ const lk=(a,l,x)=>`<button class="lk" data-a="${a}" data-id="${id}" data-x="${x}">${l}</button>`;
+ const tb=!t?bt('tstart','開始閱讀'):t.running?bt('tpause','暫停','alt')+bt('tend','結束閱讀'):bt('tresume','繼續')+bt('tend','結束閱讀');
+ const ne=ns.find(n=>n.note_id===nEdit),qe=qs.find(q=>q.quote_id===qEdit);
  openSheet(`<div class="dh">${coverEl(b)}<div class="meta"><h2>${esc(b.title)}</h2><p>${esc(b.author)||'作者未填'}</p><p>${esc(catName(b.category_id))}</p>
- ${r?`<p>完讀：${b.completed_year}${b.completed_month?' 年 '+b.completed_month+' 月':' 年'}</p><p>${FMT[b.reading_format]||''} ${OWN[b.ownership_status]?'・'+OWN[b.ownership_status]:''}</p><p>${esc(b.reading_source||'')}</p><p>閱讀時長：${dur(b.total_reading_seconds)}</p>`:'<p>想讀</p>'}</div></div>
+ ${r?`<p>完讀：${b.completed_year}${b.completed_month?' 年 '+b.completed_month+' 月':' 年'}</p><p>${FMT[b.reading_format]||''} ${OWN[b.ownership_status]?'・'+OWN[b.ownership_status]:''}</p><p>${esc(b.reading_source||'')}</p>`:'<p>想讀</p>'}${b.total_reading_seconds?`<p>閱讀時長：${dur(b.total_reading_seconds)}</p>`:''}</div></div>
  ${b.description?`<p>${esc(b.description)}</p>`:''}
- <p class="note">計時器、讀後感與金句將在 Phase 3 加入。</p>
- <div class="acts">${r?'':`<button class="btn" data-a="markread" data-id="${b.book_id}">標記為已讀完</button>`}<button class="btn alt" data-a="edit" data-id="${b.book_id}">編輯</button><button class="btn bad" data-a="del" data-id="${b.book_id}">刪除</button><button class="btn alt" data-a="close">關閉</button></div>`);
+ <div class="card"><h3 style="margin-top:0">閱讀計時</h3>${t?`<p class="note" style="margin:0;text-align:center">${t.running?'閱讀中':'已暫停'}</p>`:''}<div class="tm" id="tm" data-id="${id}">${fd(elapsed(b)/1000)}</div><div class="acts" style="justify-content:center;margin-top:8px">${tb}</div>
+ ${ss.length?'<h3>閱讀紀錄</h3>'+[...ss].reverse().map(x=>`<div class="li"><span>${dt(x.start)}　${ds(x.seconds)}</span><span>${lk('sedit','修改',x.session_id)}${lk('sdel','刪除',x.session_id)}</span></div>`).join(''):''}</div>
+ <h3>讀後感（${ns.length}）</h3>
+ ${ns.map(n=>`<div class="card"><p class="txt">${esc(n.content)}</p><div class="li" style="border:0;padding:0"><span class="pg">${dt(n.created_at)}</span><span>${lk('nedit','編輯',n.note_id)}${lk('ndel','刪除',n.note_id)}</span></div></div>`).join('')}
+ <textarea id="n_txt" placeholder="寫下這本書的想法">${esc(ne?.content)}</textarea>
+ <div class="acts" style="margin-top:8px">${bt('nsave',ne?'儲存修改':'新增讀後感')}${ne?bt('ncancel','取消','alt'):''}</div>
+ <h3>金句（${qs.length}）</h3>
+ ${qs.map(q=>`<div class="card"><p class="txt">「${esc(q.content)}」</p><div class="li" style="border:0;padding:0"><span class="pg">${q.page_number?'第 '+esc(q.page_number)+' 頁':'未填頁碼'}</span><span>${lk('qedit','編輯',q.quote_id)}${lk('qdel','刪除',q.quote_id)}</span></div></div>`).join('')}
+ <textarea id="q_txt" placeholder="輸入金句">${esc(qe?.content)}</textarea>
+ <input id="q_pg" placeholder="頁碼（可選）" value="${esc(qe?.page_number)}" style="margin-top:8px">
+ <div class="acts" style="margin-top:8px">${bt('qsave',qe?'儲存修改':'新增金句')}${qe?bt('qcancel','取消','alt'):''}</div>
+ <div class="acts" style="margin-top:28px">${r?'':bt('markread','標記為已讀完')}${bt('edit','編輯書籍','alt')}${bt('del','刪除書籍','bad')}${bt('close','關閉','alt')}</div>`);
 }
 function form(b){
  const rd=b.status==='read',s=b.reading_source||'',cu=s&&!SRC.includes(s),t=b.total_reading_seconds||0;
@@ -190,11 +216,26 @@ document.addEventListener('click',async e=>{
  if(a==='tab'){tab=t.dataset.t;render();scrollTo(0,0)}
  else if(a==='shelf'){shelf=t.dataset.v;render()}
  else if(a==='view'){view=view==='grid'?'list':'grid';render()}
- else if(a==='book'&&b)detail(b);
+ else if(a==='book'&&b){nEdit=qEdit=null;detail(b)}
  else if(a==='new'){editing=null;openSheet(form({status:'want',category_id:cats[0]?.category_id}))}
  else if(a==='edit'&&b){editing=b;openSheet(form(b))}
  else if(a==='markread'&&b){editing=b;openSheet(form({...b,status:'read'}))}
  else if(a==='del'&&b){if(confirm('確定刪除「'+b.title+'」？此動作無法復原。')){await del('books',b.book_id);books=await getAll('books');closeSheet();render()}}
+ else if(a==='tstart'&&b)upd(b,x=>{x.timer={running:true,startedAt:Date.now(),acc:0,first:Date.now()}});
+ else if(a==='tpause'&&b)upd(b,x=>{x.timer={...x.timer,running:false,acc:elapsed(x)}});
+ else if(a==='tresume'&&b)upd(b,x=>{x.timer={...x.timer,running:true,startedAt:Date.now()}});
+ else if(a==='tend'&&b){const sec=Math.round(elapsed(b)/1000);if(sec>0&&!confirm('結束閱讀並記錄 '+ds(sec)+'？'))return;
+  upd(b,x=>{if(sec>0){(x.sessions=x.sessions||[]).push({session_id:uid(),book_id:x.book_id,start:new Date(x.timer.first||Date.now()).toISOString(),seconds:sec});x.total_reading_seconds=(x.total_reading_seconds||0)+sec}x.timer=null})}
+ else if(a==='sdel'&&b){const r=(b.sessions||[]).find(z=>z.session_id===t.dataset.x);if(r&&confirm('刪除這筆閱讀紀錄？'))upd(b,x=>{x.sessions=x.sessions.filter(z=>z!==r);x.total_reading_seconds=Math.max(0,(x.total_reading_seconds||0)-r.seconds)})}
+ else if(a==='sedit'&&b){const r=(b.sessions||[]).find(z=>z.session_id===t.dataset.x);if(!r)return;const v=prompt('這次閱讀幾分鐘？',Math.round(r.seconds/60));if(v===null||v.trim()===''||isNaN(+v)||+v<0)return;const n=Math.round(+v*60);upd(b,x=>{x.total_reading_seconds=Math.max(0,(x.total_reading_seconds||0)-r.seconds+n);r.seconds=n})}
+ else if(a==='nsave'&&b){const v=$('#n_txt').value.trim();if(!v)return alert('請輸入內容');const k=nEdit;nEdit=null;upd(b,x=>{x.notes=x.notes||[];const n=x.notes.find(z=>z.note_id===k);if(n)n.content=v;else x.notes.push({note_id:uid(),book_id:x.book_id,content:v,created_at:new Date().toISOString()})})}
+ else if(a==='nedit'&&b){nEdit=t.dataset.x;showDetail(b.book_id);$('#n_txt').focus()}
+ else if(a==='ncancel'&&b){nEdit=null;showDetail(b.book_id)}
+ else if(a==='ndel'&&b){if(confirm('刪除這則讀後感？'))upd(b,x=>{x.notes=x.notes.filter(z=>z.note_id!==t.dataset.x)})}
+ else if(a==='qsave'&&b){const v=$('#q_txt').value.trim();if(!v)return alert('請輸入金句');const pg=$('#q_pg').value.trim(),k=qEdit;qEdit=null;upd(b,x=>{x.quotes=x.quotes||[];const q=x.quotes.find(z=>z.quote_id===k);if(q){q.content=v;q.page_number=pg}else x.quotes.push({quote_id:uid(),book_id:x.book_id,content:v,page_number:pg,created_at:new Date().toISOString()})})}
+ else if(a==='qedit'&&b){qEdit=t.dataset.x;showDetail(b.book_id);$('#q_txt').focus()}
+ else if(a==='qcancel'&&b){qEdit=null;showDetail(b.book_id)}
+ else if(a==='qdel'&&b){if(confirm('刪除這句金句？'))upd(b,x=>{x.quotes=x.quotes.filter(z=>z.quote_id!==t.dataset.x)})}
  else if(a==='save')save();
  else if(a==='close')closeSheet();
 });
@@ -206,6 +247,7 @@ document.addEventListener('change',e=>{const i=e.target.id;
  else if(i==='f_status')$('#readbox').style.display=e.target.value==='read'?'block':'none';
  else if(i==='f_src')$('#f_srco').style.display=e.target.value==='__o'?'block':'none';
 });
+setInterval(()=>{const el=$('#tm');if(!el)return;const b=books.find(x=>x.book_id===el.dataset.id);if(b)el.textContent=fd(elapsed(b)/1000)},1000);
 (async()=>{
  try{db=await openDB();cats=await getAll('categories');
   if(!cats.length){cats=DEF.map((name,i)=>({category_id:'c'+(i+1),name}));for(const c of cats)await put('categories',c)}
