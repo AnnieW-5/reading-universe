@@ -87,6 +87,7 @@ const getAll=s=>new Promise((ok,no)=>{const r=db.transaction(s).objectStore(s).g
 const put=(s,o)=>new Promise((ok,no)=>{const t=db.transaction(s,'readwrite');t.objectStore(s).put(o);t.oncomplete=ok;t.onerror=()=>no(t.error)});
 const del=(s,id)=>new Promise((ok,no)=>{const t=db.transaction(s,'readwrite');t.objectStore(s).delete(id);t.oncomplete=ok;t.onerror=()=>no(t.error)});
 
+async function loadBooks(){books=(await getAll('books')).filter(b=>!b.deleted)}
 const catName=id=>cats.find(c=>c.category_id===id)?.name||'未分類';
 const dur=s=>{s=s||0;return Math.floor(s/3600)+' 小時 '+Math.floor(s%3600/60)+' 分'};
 const hue=t=>{let h=0;for(const c of t)h=(h*31+c.charCodeAt(0))%360;return h};
@@ -101,7 +102,7 @@ function home(){
  const added=[...books].sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,8);
  const rec=[...reads()].sort((a,b)=>(b.completed_year*100+(b.completed_month||0))-(a.completed_year*100+(a.completed_month||0))).slice(0,8);
  const sh=(t,a,m)=>`<h3>${t}</h3>`+(a.length?`<div class="shelf">${a.map(cover).join('')}</div>`:`<p class="empty">${m}</p>`);
- return `<h1>My Reading Universe</h1>
+ return `<h1>My Reading Universe</h1><button class="lk" id="syncl" data-a="settings" style="padding:0 0 8px">${syncLabel()}</button>
  <div class="stats"><div class="stat"><b>${yb.length}</b><span>${NOW} 年已讀完（本）</span></div><div class="stat"><b>${Math.floor(secs/3600)}<small style="font-size:15px"> 時 ${Math.floor(secs%3600/60)} 分</small></b><span>${NOW} 年閱讀時長</span></div></div>
  <button class="btn" data-a="new">＋ 快速新增書籍</button>
  ${sh('最近新增',added,'還沒有書，從上方按鈕新增第一本。')}
@@ -154,7 +155,7 @@ const ds=x=>x<60?x+' 秒':dur(x);
 const dt=i=>{const d=new Date(i);return d.getFullYear()+'/'+(d.getMonth()+1)+'/'+d.getDate()};
 const elapsed=b=>{const t=b.timer;return t?t.acc+(t.running?Date.now()-t.startedAt:0):0};
 function showDetail(id){const p=$('#panel'),st=p.scrollTop,b=books.find(x=>x.book_id===id);if(!b)return closeSheet();detail(b);p.scrollTop=st}
-async function upd(b,fn){fn(b);await put('books',b);render();showDetail(b.book_id)}
+async function upd(b,fn){fn(b);b.updated_at=new Date().toISOString();await put('books',b);render();showDetail(b.book_id);queueSync()}
 function detail(b){
  const id=b.book_id,r=b.status==='read',t=b.timer,ss=b.sessions||[],ns=b.notes||[],qs=b.quotes||[];
  const bt=(a,l,c)=>`<button class="btn${c?' '+c:''}" data-a="${a}" data-id="${id}">${l}</button>`;
@@ -207,7 +208,44 @@ async function save(){
   if(h!==''||m!==''){o.total_reading_seconds=(+h||0)*3600+(+m||0)*60;o.reading_duration_manual=true}
   else if(o.total_reading_seconds==null){o.total_reading_seconds=0;o.reading_duration_manual=false}
  }
- await put('books',o);books=await getAll('books');closeSheet();render();
+ await put('books',o);await loadBooks();closeSheet();render();queueSync();
+}
+const cfg=()=>({u:localStorage.getItem('ru_url')||'',k:localStorage.getItem('ru_key')||''});
+let syncSt='',syncAt='',syncMsg='',syncing=false,syncAgain=false,syncT=null;
+const syncLabel=()=>{const c=cfg();if(!c.u||!c.k)return '☁ 設定雲端同步';return '☁ '+(syncSt==='busy'?'同步中…':syncSt==='err'?'同步失敗，點此查看':syncAt?'已同步 '+syncAt:'已連線')};
+function setSt(st,m){syncSt=st;if(m!=null)syncMsg=m;const e=$('#syncl');if(e)e.textContent=syncLabel();const g=$('#s_msg');if(g)g.textContent=syncMsg}
+function queueSync(){clearTimeout(syncT);syncT=setTimeout(sync,2500)}
+async function sync(){
+ const {u,k}=cfg();if(!u||!k||!db)return;
+ if(syncing){syncAgain=true;return}
+ syncing=true;setSt('busy','同步中…');
+ try{
+  const last=localStorage.getItem('ru_last')||'',t0=new Date().toISOString(),raw=await getAll('books');
+  const push=raw.filter(b=>(b.updated_at||'')>last).map(b=>{const {timer,...r}=b;return{type:'book',id:b.book_id,updated_at:b.updated_at||'',json:JSON.stringify(r)}});
+  const res=await fetch(u,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({key:k,action:'sync',records:push})});
+  const d=await res.json();
+  if(!d.ok)throw new Error(d.error==='unauthorized'?'密碼錯誤，請確認與 Apps Script 內的 SECRET 一致':d.error);
+  const loc=new Map(raw.map(b=>[b.book_id,b]));let down=0;
+  for(const r of d.records){if(r.type!=='book')continue;const l=loc.get(r.id);
+   if(!l||r.updated_at>(l.updated_at||'')){const o=JSON.parse(r.json);if(l?.timer)o.timer=l.timer;await put('books',o);down++}}
+  localStorage.setItem('ru_last',t0);
+  await loadBooks();
+  const n=new Date();syncAt=String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0');
+  if(down&&!$('#sheet').classList.contains('open'))render();
+  setSt('ok','同步完成：上傳 '+push.length+' 筆，下載 '+down+' 筆（'+syncAt+'）');
+ }catch(err){
+  setSt('err',err instanceof TypeError?'無法連線：請確認網路與網址，並確認部署時「誰可以存取」選了「所有人」':'同步失敗：'+err.message);
+ }
+ syncing=false;
+ if(syncAgain){syncAgain=false;queueSync()}
+}
+function settings(){
+ const c=cfg();
+ openSheet(`<h2>雲端同步</h2><p class="note" style="margin-top:0">資料會同步到你自己 Google 帳號裡的 Google Sheet。需先完成 Apps Script 部署。</p>
+ <label>網頁應用程式網址</label><input id="s_url" value="${esc(c.u)}" placeholder="https://script.google.com/macros/s/…/exec" autocapitalize="off" autocorrect="off">
+ <label>密碼</label><input id="s_key" type="password" value="${esc(c.k)}" autocapitalize="off">
+ <p class="note" id="s_msg">${esc(syncMsg)}</p>
+ <div class="acts"><button class="btn" data-a="ssave">儲存並同步</button><button class="btn alt" data-a="snow">立即同步</button><button class="btn bad" data-a="soff">中斷連線</button><button class="btn alt" data-a="close">關閉</button></div>`);
 }
 document.addEventListener('click',async e=>{
  if(e.target.id==='sheet')return closeSheet();
@@ -220,7 +258,7 @@ document.addEventListener('click',async e=>{
  else if(a==='new'){editing=null;openSheet(form({status:'want',category_id:cats[0]?.category_id}))}
  else if(a==='edit'&&b){editing=b;openSheet(form(b))}
  else if(a==='markread'&&b){editing=b;openSheet(form({...b,status:'read'}))}
- else if(a==='del'&&b){if(confirm('確定刪除「'+b.title+'」？此動作無法復原。')){await del('books',b.book_id);books=await getAll('books');closeSheet();render()}}
+ else if(a==='del'&&b){if(confirm('確定刪除「'+b.title+'」？此動作無法復原。')){await put('books',{...b,deleted:true,updated_at:new Date().toISOString()});await loadBooks();closeSheet();render();queueSync()}}
  else if(a==='tstart'&&b)upd(b,x=>{x.timer={running:true,startedAt:Date.now(),acc:0,first:Date.now()}});
  else if(a==='tpause'&&b)upd(b,x=>{x.timer={...x.timer,running:false,acc:elapsed(x)}});
  else if(a==='tresume'&&b)upd(b,x=>{x.timer={...x.timer,running:true,startedAt:Date.now()}});
@@ -236,6 +274,10 @@ document.addEventListener('click',async e=>{
  else if(a==='qedit'&&b){qEdit=t.dataset.x;showDetail(b.book_id);$('#q_txt').focus()}
  else if(a==='qcancel'&&b){qEdit=null;showDetail(b.book_id)}
  else if(a==='qdel'&&b){if(confirm('刪除這句金句？'))upd(b,x=>{x.quotes=x.quotes.filter(z=>z.quote_id!==t.dataset.x)})}
+ else if(a==='settings')settings();
+ else if(a==='ssave'){const u=$('#s_url').value.trim(),k=$('#s_key').value.trim();if(!/^https:\/\/script\.google\.com\/.+\/exec$/.test(u))return alert('網址格式不對，結尾應為 /exec');if(!k)return alert('請輸入密碼');localStorage.setItem('ru_url',u);localStorage.setItem('ru_key',k);localStorage.removeItem('ru_last');sync()}
+ else if(a==='snow')sync();
+ else if(a==='soff'){if(confirm('中斷後不再同步，這支手機上的資料仍會保留。確定嗎？')){localStorage.removeItem('ru_url');localStorage.removeItem('ru_key');localStorage.removeItem('ru_last');syncSt='';syncAt='';setSt('','已中斷連線');render()}}
  else if(a==='save')save();
  else if(a==='close')closeSheet();
 });
@@ -251,10 +293,11 @@ setInterval(()=>{const el=$('#tm');if(!el)return;const b=books.find(x=>x.book_id
 (async()=>{
  try{db=await openDB();cats=await getAll('categories');
   if(!cats.length){cats=DEF.map((name,i)=>({category_id:'c'+(i+1),name}));for(const c of cats)await put('categories',c)}
-  books=await getAll('books');navigator.storage?.persist?.();
+  await loadBooks();navigator.storage?.persist?.();
  }catch(err){$('#app').innerHTML='<p class="empty">無法使用瀏覽器儲存空間。請確認不是無痕模式，並用 Safari 開啟。</p>';return}
- render();
+ render();sync();
 })();
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')sync()});
 </script>
 </body>
 </html>
