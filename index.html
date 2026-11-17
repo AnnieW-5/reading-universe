@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Reading Universe">
+<meta name="theme-color" content="#1d3a38">
+<title>My Reading Universe</title>
+<style>
+:root{--bg:#eef1ec;--card:#fbfcfa;--ink:#1d2b2a;--mute:#667673;--line:#d3dbd4;--acc:#1f5f5b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 -apple-system,"PingFang TC",sans-serif;padding-bottom:calc(76px + env(safe-area-inset-bottom))}
+h1,h2,h3{font-family:"Songti TC","Noto Serif TC",serif;margin:0 0 10px}
+h1{font-size:26px} h2{font-size:20px} h3{font-size:17px;margin-top:22px}
+main{max-width:640px;margin:auto;padding:calc(18px + env(safe-area-inset-top)) 16px 16px}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;border:0;background:none;padding:14px 0;font-size:14px;color:var(--mute)}
+nav button.on{color:var(--acc);font-weight:700}
+button{font:inherit;color:inherit;cursor:pointer}
+.btn{border:0;background:var(--acc);color:#fff;border-radius:10px;padding:12px 18px;font-weight:600;min-height:44px}
+.btn.alt{background:none;color:var(--acc);border:1px solid var(--acc)}
+.btn.bad{background:none;color:#a33;border:1px solid #a33}
+.btn:disabled{opacity:.45}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.stat b{display:block;font:700 30px "Songti TC",serif}
+.stat span{font-size:14px;color:var(--mute)}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px 12px}
+.shelf{display:flex;gap:12px;overflow-x:auto;padding-bottom:6px}
+.shelf .bk{flex:0 0 96px}
+.bk{border:0;background:none;padding:0;text-align:left}
+.cover{aspect-ratio:2/3;border-radius:3px 7px 7px 3px;padding:10px 8px 8px 12px;color:#fff;font:700 14px/1.3 "Songti TC",serif;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;box-shadow:inset 5px 0 0 rgba(0,0,0,.2),0 3px 8px rgba(0,0,0,.22)}
+.cover small{font:400 11px sans-serif;opacity:.85}
+.row{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:none;padding:12px 2px}
+.row span{display:block;font-size:14px;color:var(--mute)}
+.seg{display:flex;gap:8px;margin:10px 0}
+.seg button{flex:1;padding:10px;border:1px solid var(--line);background:var(--card);border-radius:10px}
+.seg button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.tools{display:flex;gap:8px;margin:8px 0}
+input,select,textarea{width:100%;font:inherit;font-size:16px;padding:11px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:inherit}
+textarea{min-height:84px}
+label{display:block;margin:14px 0 4px;font-size:14px;color:var(--mute)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.empty{color:var(--mute);text-align:center;padding:36px 12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin:12px 0}
+.bar{display:flex;align-items:center;gap:10px;margin:7px 0;font-size:14px}
+.bar i{display:block;height:12px;background:var(--acc);border-radius:6px;min-width:2px}
+.bar em{width:34px;font-style:normal;color:var(--mute)}
+#sheet{position:fixed;inset:0;background:rgba(0,0,0,.42);display:none;align-items:flex-end;z-index:9}
+#sheet.open{display:flex}
+#panel{background:var(--bg);width:100%;max-height:92%;overflow:auto;border-radius:18px 18px 0 0;padding:20px 16px calc(28px + env(safe-area-inset-bottom));max-width:640px;margin:auto}
+.dh{display:flex;gap:14px;margin-bottom:12px}.dh .cover{width:104px;flex:none}
+.meta p{margin:2px 0;font-size:15px}
+.acts{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+.note{font-size:13px;color:var(--mute);margin-top:14px}
+</style>
+</head>
+<body>
+<main id="app"></main>
+<nav id="nav">
+<button data-a="tab" data-t="home">首頁</button>
+<button data-a="tab" data-t="books">我的書</button>
+<button data-a="tab" data-t="sum">閱讀統計</button>
+<button data-a="tab" data-t="add">新增書籍</button>
+</nav>
+<div id="sheet"><div id="panel"></div></div>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid=()=>crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2);
+const NOW=new Date().getFullYear();
+const FMT={Physical:'實體書',Ebook:'電子書',Audiobook:'有聲書'},OWN={Owned:'自己擁有',Borrowed:'借閱'};
+const SRC=['微信讀書','其他電子書平台','個人藏書','朋友借閱','圖書館'];
+const DEF=['歷史','小說／文學','心理／自我成長','哲學／思想','商業／經濟','科學／科技','傳記／人物','社會／政治','藝術／文化','其他'];
+let db,books=[],cats=[],tab='home',shelf='want',q='',catF='',yF='',view='grid',sy=NOW,editing=null;
+
+const openDB=()=>new Promise((ok,no)=>{const r=indexedDB.open('reading-universe',1);
+ r.onupgradeneeded=()=>{r.result.createObjectStore('books',{keyPath:'book_id'});r.result.createObjectStore('categories',{keyPath:'category_id'})};
+ r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});
+const getAll=s=>new Promise((ok,no)=>{const r=db.transaction(s).objectStore(s).getAll();r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});
+const put=(s,o)=>new Promise((ok,no)=>{const t=db.transaction(s,'readwrite');t.objectStore(s).put(o);t.oncomplete=ok;t.onerror=()=>no(t.error)});
+const del=(s,id)=>new Promise((ok,no)=>{const t=db.transaction(s,'readwrite');t.objectStore(s).delete(id);t.oncomplete=ok;t.onerror=()=>no(t.error)});
+
+const catName=id=>cats.find(c=>c.category_id===id)?.name||'未分類';
+const dur=s=>{s=s||0;return Math.floor(s/3600)+' 小時 '+Math.floor(s%3600/60)+' 分'};
+const hue=t=>{let h=0;for(const c of t)h=(h*31+c.charCodeAt(0))%360;return h};
+const coverEl=b=>{const h=hue(b.title);return `<div class="cover" style="background:linear-gradient(160deg,hsl(${h} 38% 34%),hsl(${(h+30)%360} 40% 22%))"><span>${esc(b.title)}</span><small>${esc(b.author)}</small></div>`};
+const cover=b=>`<button class="bk" data-a="book" data-id="${b.book_id}">${coverEl(b)}</button>`;
+const row=b=>`<button class="row" data-a="book" data-id="${b.book_id}"><b>${esc(b.title)}</b><span>${esc(b.author)||'作者未填'} ・ ${esc(catName(b.category_id))}</span></button>`;
+const reads=()=>books.filter(b=>b.status==='read');
+const opts=(o,v,empty)=>(empty?'<option value="">未選擇</option>':'')+Object.entries(o).map(([k,l])=>`<option value="${k}"${k===v?' selected':''}>${l}</option>`).join('');
+
+function home(){
+ const yb=reads().filter(b=>b.completed_year===NOW),secs=yb.reduce((a,b)=>a+(b.total_reading_seconds||0),0);
+ const added=[...books].sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,8);
+ const rec=[...reads()].sort((a,b)=>(b.completed_year*100+(b.completed_month||0))-(a.completed_year*100+(a.completed_month||0))).slice(0,8);
+ const sh=(t,a,m)=>`<h3>${t}</h3>`+(a.length?`<div class="shelf">${a.map(cover).join('')}</div>`:`<p class="empty">${m}</p>`);
+ return `<h1>My Reading Universe</h1>
+ <div class="stats"><div class="stat"><b>${yb.length}</b><span>${NOW} 年已讀完（本）</span></div><div class="stat"><b>${Math.floor(secs/3600)}<small style="font-size:15px"> 時 ${Math.floor(secs%3600/60)} 分</small></b><span>${NOW} 年閱讀時長</span></div></div>
+ <button class="btn" data-a="new">＋ 快速新增書籍</button>
+ ${sh('最近新增',added,'還沒有書，從上方按鈕新增第一本。')}
+ ${sh('最近讀完',rec,'讀完的書會出現在這裡。')}`;
+}
+function listHTML(){
+ let a=books.filter(b=>b.status===shelf);
+ if(q){const k=q.toLowerCase();a=a.filter(b=>(b.title+' '+b.author).toLowerCase().includes(k))}
+ if(catF)a=a.filter(b=>b.category_id===catF);
+ if(shelf==='read'&&yF)a=a.filter(b=>String(b.completed_year)===yF);
+ a.sort((x,y)=>y.updated_at.localeCompare(x.updated_at));
+ if(!a.length)return `<p class="empty">${books.some(b=>b.status===shelf)?'沒有符合條件的書。':shelf==='want'?'想讀清單是空的。':'還沒有讀完的書。'}</p>`;
+ return view==='grid'?`<div class="grid">${a.map(cover).join('')}</div>`:`<div>${a.map(row).join('')}</div>`;
+}
+function booksPage(){
+ const ys=[...new Set(reads().map(b=>b.completed_year))].sort((a,b)=>b-a);
+ return `<h1>我的書</h1>
+ <div class="seg"><button data-a="shelf" data-v="want" class="${shelf==='want'?'on':''}">想讀（${books.filter(b=>b.status==='want').length}）</button><button data-a="shelf" data-v="read" class="${shelf==='read'?'on':''}">已讀（${reads().length}）</button></div>
+ <input id="q" placeholder="搜尋書名或作者" value="${esc(q)}">
+ <div class="tools"><select id="catF"><option value="">全部分類</option>${cats.map(c=>`<option value="${c.category_id}"${c.category_id===catF?' selected':''}>${esc(c.name)}</option>`).join('')}</select>
+ ${shelf==='read'?`<select id="yF"><option value="">全部年份</option>${ys.map(y=>`<option${String(y)===yF?' selected':''}>${y}</option>`).join('')}</select>`:''}
+ <button class="btn alt" data-a="view" style="flex:none">${view==='grid'?'清單':'封面'}</button></div>
+ <div id="list">${listHTML()}</div>`;
+}
+function sumPage(){
+ const ys=[...new Set([NOW,...reads().map(b=>b.completed_year)])].sort((a,b)=>b-a);
+ const yb=reads().filter(b=>b.completed_year===sy),secs=yb.reduce((a,b)=>a+(b.total_reading_seconds||0),0);
+ const m=Array.from({length:12},(_,i)=>{const x=yb.filter(b=>b.completed_month===i+1);return{n:x.length,s:x.reduce((a,b)=>a+(b.total_reading_seconds||0),0)}});
+ const mx=Math.max(1,...m.map(x=>x.n));
+ return `<h1>閱讀統計</h1><select id="sy">${ys.map(y=>`<option${y===sy?' selected':''}>${y}</option>`).join('')}</select>
+ <div class="stats"><div class="stat"><b>${yb.length}</b><span>已讀完（本）</span></div><div class="stat"><b style="font-size:22px;line-height:40px">${dur(secs)}</b><span>總閱讀時長</span></div></div>
+ <div class="card"><h2>每月完讀</h2>${m.map((x,i)=>`<div class="bar"><em>${i+1} 月</em><i style="width:${x.n/mx*60}%"></i><span>${x.n} 本${x.s?'・'+dur(x.s):''}</span></div>`).join('')}</div>
+ ${yb.length?`<h3>${sy} 年讀完的書</h3><div class="grid">${yb.map(cover).join('')}</div>`:'<p class="empty">這一年還沒有讀完的書。</p>'}
+ <p class="note">封面牆、圓形輪播與書架展示將在 Phase 5 加入。</p>`;
+}
+function addPage(){
+ return `<h1>新增書籍</h1><div class="card"><h2>手動輸入</h2><p class="note" style="margin-top:0">輸入書名、作者與閱讀資料。</p><button class="btn" data-a="new">開始輸入</button></div>
+ <div class="card"><h2>搜尋・拍照・相簿</h2><p class="note" style="margin-top:0">自動取得封面與簡介、辨識圖片文字，將在 Phase 4 開放。</p><button class="btn" disabled>尚未開放</button></div>`;
+}
+function render(){
+ $('#app').innerHTML={home,books:booksPage,sum:sumPage,add:addPage}[tab]();
+ document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===tab));
+}
+const openSheet=h=>{$('#panel').innerHTML=h;$('#sheet').classList.add('open');$('#panel').scrollTop=0};
+const closeSheet=()=>{$('#sheet').classList.remove('open');editing=null};
+
+function detail(b){
+ const r=b.status==='read';
+ openSheet(`<div class="dh">${coverEl(b)}<div class="meta"><h2>${esc(b.title)}</h2><p>${esc(b.author)||'作者未填'}</p><p>${esc(catName(b.category_id))}</p>
+ ${r?`<p>完讀：${b.completed_year}${b.completed_month?' 年 '+b.completed_month+' 月':' 年'}</p><p>${FMT[b.reading_format]||''} ${OWN[b.ownership_status]?'・'+OWN[b.ownership_status]:''}</p><p>${esc(b.reading_source||'')}</p><p>閱讀時長：${dur(b.total_reading_seconds)}</p>`:'<p>想讀</p>'}</div></div>
+ ${b.description?`<p>${esc(b.description)}</p>`:''}
+ <p class="note">計時器、讀後感與金句將在 Phase 3 加入。</p>
+ <div class="acts">${r?'':`<button class="btn" data-a="markread" data-id="${b.book_id}">標記為已讀完</button>`}<button class="btn alt" data-a="edit" data-id="${b.book_id}">編輯</button><button class="btn bad" data-a="del" data-id="${b.book_id}">刪除</button><button class="btn alt" data-a="close">關閉</button></div>`);
+}
+function form(b){
+ const rd=b.status==='read',s=b.reading_source||'',cu=s&&!SRC.includes(s),t=b.total_reading_seconds||0;
+ return `<h2>${b.book_id?'編輯書籍':'新增書籍'}</h2>
+ <label>書名 *</label><input id="f_title" value="${esc(b.title)}">
+ <label>作者</label><input id="f_author" value="${esc(b.author)}">
+ <label>分類</label><select id="f_cat">${cats.map(c=>`<option value="${c.category_id}"${c.category_id===b.category_id?' selected':''}>${esc(c.name)}</option>`).join('')}</select>
+ <label>簡介</label><textarea id="f_desc">${esc(b.description)}</textarea>
+ <label>狀態</label><select id="f_status"><option value="want"${rd?'':' selected'}>想讀</option><option value="read"${rd?' selected':''}>已讀完</option></select>
+ <div id="readbox" style="display:${rd?'block':'none'}">
+ <div class="two"><div><label>完讀年份</label><input id="f_year" type="number" inputmode="numeric" value="${b.completed_year||NOW}"></div>
+ <div><label>完讀月份</label><select id="f_month">${Array.from({length:12},(_,i)=>`<option value="${i+1}"${(b.completed_month||new Date().getMonth()+1)===i+1?' selected':''}>${i+1} 月</option>`).join('')}</select></div></div>
+ <div class="two"><div><label>閱讀媒介</label><select id="f_fmt">${opts(FMT,b.reading_format,1)}</select></div>
+ <div><label>取得方式</label><select id="f_own">${opts(OWN,b.ownership_status,1)}</select></div></div>
+ <label>閱讀來源</label><select id="f_src"><option value="">未選擇</option>${SRC.map(x=>`<option${x===s?' selected':''}>${x}</option>`).join('')}<option value="__o"${cu?' selected':''}>其他（自訂）</option></select>
+ <input id="f_srco" placeholder="輸入自訂來源" value="${cu?esc(s):''}" style="margin-top:8px;display:${cu?'block':'none'}">
+ <label>累計閱讀時長（手動輸入，可留空）</label><div class="two"><input id="f_h" type="number" inputmode="numeric" min="0" placeholder="小時" value="${t?Math.floor(t/3600):''}"><input id="f_m" type="number" inputmode="numeric" min="0" max="59" placeholder="分鐘" value="${t?Math.floor(t%3600/60):''}"></div></div>
+ <div class="acts"><button class="btn" data-a="save">儲存</button><button class="btn alt" data-a="close">取消</button></div>`;
+}
+async function save(){
+ const t=$('#f_title').value.trim();if(!t)return alert('請輸入書名');
+ const now=new Date().toISOString(),st=$('#f_status').value,e=editing||{};
+ const o={...e,book_id:e.book_id||uid(),title:t,author:$('#f_author').value.trim(),category_id:$('#f_cat').value,description:$('#f_desc').value.trim(),status:st,created_at:e.created_at||now,updated_at:now};
+ if(st==='read'){
+  o.completed_year=+$('#f_year').value||NOW;o.completed_month=+$('#f_month').value;
+  o.reading_format=$('#f_fmt').value;o.ownership_status=$('#f_own').value;
+  const s=$('#f_src').value;o.reading_source=s==='__o'?$('#f_srco').value.trim():s;
+  const h=$('#f_h').value,m=$('#f_m').value;
+  if(h!==''||m!==''){o.total_reading_seconds=(+h||0)*3600+(+m||0)*60;o.reading_duration_manual=true}
+  else if(o.total_reading_seconds==null){o.total_reading_seconds=0;o.reading_duration_manual=false}
+ }
+ await put('books',o);books=await getAll('books');closeSheet();render();
+}
+document.addEventListener('click',async e=>{
+ if(e.target.id==='sheet')return closeSheet();
+ const t=e.target.closest('[data-a]');if(!t)return;
+ const a=t.dataset.a,b=books.find(x=>x.book_id===t.dataset.id);
+ if(a==='tab'){tab=t.dataset.t;render();scrollTo(0,0)}
+ else if(a==='shelf'){shelf=t.dataset.v;render()}
+ else if(a==='view'){view=view==='grid'?'list':'grid';render()}
+ else if(a==='book'&&b)detail(b);
+ else if(a==='new'){editing=null;openSheet(form({status:'want',category_id:cats[0]?.category_id}))}
+ else if(a==='edit'&&b){editing=b;openSheet(form(b))}
+ else if(a==='markread'&&b){editing=b;openSheet(form({...b,status:'read'}))}
+ else if(a==='del'&&b){if(confirm('確定刪除「'+b.title+'」？此動作無法復原。')){await del('books',b.book_id);books=await getAll('books');closeSheet();render()}}
+ else if(a==='save')save();
+ else if(a==='close')closeSheet();
+});
+document.addEventListener('input',e=>{if(e.target.id==='q'){q=e.target.value;$('#list').innerHTML=listHTML()}});
+document.addEventListener('change',e=>{const i=e.target.id;
+ if(i==='catF'){catF=e.target.value;$('#list').innerHTML=listHTML()}
+ else if(i==='yF'){yF=e.target.value;$('#list').innerHTML=listHTML()}
+ else if(i==='sy'){sy=+e.target.value;render()}
+ else if(i==='f_status')$('#readbox').style.display=e.target.value==='read'?'block':'none';
+ else if(i==='f_src')$('#f_srco').style.display=e.target.value==='__o'?'block':'none';
+});
+(async()=>{
+ try{db=await openDB();cats=await getAll('categories');
+  if(!cats.length){cats=DEF.map((name,i)=>({category_id:'c'+(i+1),name}));for(const c of cats)await put('categories',c)}
+  books=await getAll('books');navigator.storage?.persist?.();
+ }catch(err){$('#app').innerHTML='<p class="empty">無法使用瀏覽器儲存空間。請確認不是無痕模式，並用 Safari 開啟。</p>';return}
+ render();
+})();
+</script>
+</body>
+</html>
