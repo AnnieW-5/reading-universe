@@ -90,7 +90,7 @@ const getAll=s=>new Promise((ok,no)=>{const r=db.transaction(s).objectStore(s).g
 const put=(s,o)=>new Promise((ok,no)=>{const t=db.transaction(s,'readwrite');t.objectStore(s).put(o);t.oncomplete=ok;t.onerror=()=>no(t.error)});
 const del=(s,id)=>new Promise((ok,no)=>{const t=db.transaction(s,'readwrite');t.objectStore(s).delete(id);t.oncomplete=ok;t.onerror=()=>no(t.error)});
 
-async function loadBooks(){books=(await getAll('books')).filter(b=>!b.deleted)}
+async function loadBooks(){const a=(await getAll('books')).filter(b=>!b.deleted);books=a.filter(b=>!b.is_inbox);inbox=a.filter(b=>b.is_inbox)}
 const catName=id=>cats.find(c=>c.category_id===id)?.name||'未分類';
 const dur=s=>{s=s||0;return Math.floor(s/3600)+' 小時 '+Math.floor(s%3600/60)+' 分'};
 const hue=t=>{let h=0;for(const c of t)h=(h*31+c.charCodeAt(0))%360;return h};
@@ -105,7 +105,7 @@ function home(){
  const added=[...books].sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,8);
  const rec=[...reads()].sort((a,b)=>(b.completed_year*100+(b.completed_month||0))-(a.completed_year*100+(a.completed_month||0))).slice(0,8);
  const sh=(t,a,m)=>`<h3>${t}</h3>`+(a.length?`<div class="shelf">${a.map(cover).join('')}</div>`:`<p class="empty">${m}</p>`);
- return `<h1>My Reading Universe</h1><button class="lk" id="syncl" data-a="settings" style="padding:0 0 8px">${syncLabel()}</button>
+ return `<h1>My Reading Universe</h1><button class="lk" id="syncl" data-a="settings" style="padding:0 0 8px">${syncLabel()}</button>${inbox.length?`<br><button class="lk" data-a="inbox" style="padding:0 0 8px">📝 暫存金句（${inbox.length}）</button>`:''}
  <div class="stats"><div class="stat"><b>${yb.length}</b><span>${NOW} 年已讀完（本）</span></div><div class="stat"><b>${Math.floor(secs/3600)}<small style="font-size:15px"> 時 ${Math.floor(secs%3600/60)} 分</small></b><span>${NOW} 年閱讀時長</span></div></div>
  <button class="btn" data-a="new">＋ 快速新增書籍</button>
  ${sh('最近新增',added,'還沒有書，從上方按鈕新增第一本。')}
@@ -142,9 +142,14 @@ function sumPage(){
  <p class="note">封面牆、圓形輪播與書架展示將在 Phase 5 加入。</p>`;
 }
 function addPage(){
- return `<h1>新增書籍</h1><div class="card"><h2>搜尋書籍</h2><div class="two" style="grid-template-columns:1fr auto"><input id="sq" placeholder="書名、作者或 ISBN" value="${esc(sq)}" enterkeyhint="search" autocapitalize="off"><button class="btn" data-a="search">搜尋</button></div><p class="note" id="smsg">${esc(smsg)}</p><div id="sres">${srHTML()}</div></div>
- <div class="card"><h2>手動輸入</h2><p class="note" style="margin-top:0">找不到書時，自己輸入書名與作者。</p><button class="btn alt" data-a="new">開始輸入</button></div>
- <div class="card"><h2>拍照・相簿</h2><p class="note" style="margin-top:0">辨識書封與金句截圖，將在下一步（Phase 4b）開放。</p><button class="btn" disabled>尚未開放</button></div>`;
+ return `<h1>新增書籍</h1>
+ ${pendingQ?`<div class="card"><p class="note" style="margin-top:0">待加入的金句：${esc(pendingQ.content.slice(0,60))}…<br>請搜尋或手動新增這本書，儲存後會自動加入。</p><button class="btn alt" data-a="pq_cancel">取消</button></div>`:''}
+ <div class="card"><h2>搜尋書籍</h2><div class="two" style="grid-template-columns:1fr auto"><input id="sq" placeholder="書名、作者或 ISBN" value="${esc(sq)}" enterkeyhint="search" autocapitalize="off"><button class="btn" data-a="search">搜尋</button></div><p class="note" id="smsg">${esc(smsg)}</p><div id="sres">${srHTML()}</div></div>
+ <div class="card"><h2>拍照・相簿</h2><p class="note" style="margin-top:0">拍書封、書介頁或金句截圖。文字辨識在你的手機上進行，圖片不會上傳。第一次使用會下載辨識元件與中文語言檔，建議用 Wi-Fi。</p>
+ <div class="acts" style="margin-top:0"><button class="btn" data-a="cam">拍照</button><button class="btn alt" data-a="pic">從相簿選擇</button></div>
+ <input type="file" id="f_cam" accept="image/*" capture="environment" hidden><input type="file" id="f_pic" accept="image/*" hidden>
+ ${ocrHTML()}</div>
+ <div class="card"><h2>手動輸入</h2><p class="note" style="margin-top:0">找不到書或辨識失敗時，自己輸入書名與作者。</p><button class="btn alt" data-a="new">開始輸入</button></div>`;
 }
 function render(){
  $('#app').innerHTML={home,books:booksPage,sum:sumPage,add:addPage}[tab]();
@@ -213,6 +218,7 @@ async function save(){
   if(h!==''||m!==''){o.total_reading_seconds=(+h||0)*3600+(+m||0)*60;o.reading_duration_manual=true}
   else if(o.total_reading_seconds==null){o.total_reading_seconds=0;o.reading_duration_manual=false}
  }
+ if(!e.book_id&&pendingQ){(o.quotes=o.quotes||[]).push({quote_id:uid(),book_id:o.book_id,content:pendingQ.content,page_number:pendingQ.page,created_at:now});pendingQ=null}
  await put('books',o);await loadBooks();closeSheet();render();queueSync();
 }
 const cfg=()=>({u:localStorage.getItem('ru_url')||'',k:localStorage.getItem('ru_key')||''});
@@ -283,6 +289,46 @@ async function doSearch(){
  smsg=out.length?(g.status==='rejected'?'Google Books 暫時無法使用（免費額度可能已滿），目前只顯示 Open Library 的結果。':'請點選正確的書，確認後再儲存。'):(g.status==='rejected'&&o.status==='rejected'?'搜尋失敗，請確認網路，或改用手動輸入。':'找不到資料，可改用手動輸入。');
  sbusy=false;paintSR();
 }
+let ocr=null,ocrW=null,ocrLines=[],pendingQ=null,inbox=[];
+const loadTess=()=>window.Tesseract?Promise.resolve():new Promise((ok,no)=>{const x=document.createElement('script');x.src='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';x.onload=ok;x.onerror=()=>no(new Error('無法載入辨識元件，請確認網路'));document.head.appendChild(x)});
+function setOcrMsg(m){if(ocr)ocr.msg=m;const e=$('#ocrmsg');if(e)e.textContent=m}
+async function getWorker(){
+ if(ocrW)return ocrW;
+ await loadTess();
+ ocrW=await Tesseract.createWorker('chi_tra+eng',1,{logger:m=>{if(!m.status)return;const p=Math.round((m.progress||0)*100),l=/load|initializ/i.test(m.status);setOcrMsg((l?'載入辨識檔（第一次較久）':'辨識中')+' '+p+'%')}});
+ return ocrW;
+}
+async function shrink(f){
+ const u=URL.createObjectURL(f);
+ const im=await new Promise((ok,no)=>{const i=new Image();i.onload=()=>ok(i);i.onerror=()=>no(new Error('無法讀取這張圖片'));i.src=u});
+ const k=Math.min(1,1800/Math.max(im.naturalWidth,im.naturalHeight)),c=document.createElement('canvas');
+ c.width=Math.round(im.naturalWidth*k);c.height=Math.round(im.naturalHeight*k);
+ c.getContext('2d').drawImage(im,0,0,c.width,c.height);
+ return{blob:await new Promise(r=>c.toBlob(r,'image/jpeg',.9)),url:u};
+}
+const cleanOcr=t=>t.split('\n').map(l=>l.replace(/([\u3400-\u9fff，。！？：；、「」『』（）])[ \t]+(?=[\u3400-\u9fff，。！？：；、「」『』（）])/g,'$1').trim()).filter(Boolean).join('\n');
+async function onImage(f){
+ if(!f)return;
+ ocr={busy:true,msg:'準備圖片…',url:'',text:''};tab='add';render();
+ try{
+  const r=await shrink(f);ocr.url=r.url;render();setOcrMsg('準備辨識…');
+  const w=await getWorker(),res=await w.recognize(r.blob);
+  ocr={url:r.url,text:cleanOcr(res.data.text||''),busy:false,msg:''};
+  if(!ocr.text)ocr.msg='沒有辨識到文字。可重拍、換一張圖，或在下方直接輸入文字。';
+ }catch(err){ocr={url:ocr?.url||'',text:'',busy:false,msg:'辨識失敗：'+err.message+'。你仍可在下方手動輸入文字，或改用手動新增。'}}
+ render();
+}
+function ocrHTML(){
+ if(!ocr)return '';
+ return `${ocr.url?`<img src="${ocr.url}" alt="" style="max-width:100%;max-height:220px;border-radius:8px;margin:10px 0 0">`:''}
+ ${ocr.busy?`<p class="note" id="ocrmsg">${esc(ocr.msg)}</p>`:`${ocr.msg?`<p class="note">${esc(ocr.msg)}</p>`:''}
+ ${ocr.url?`<label>辨識結果（可修改）</label><textarea id="o_txt" style="min-height:120px">${esc(ocr.text)}</textarea><p class="note">這張圖是什麼？</p><div class="acts" style="margin-top:0"><button class="btn" data-a="o_book">書封／書介：找這本書</button><button class="btn alt" data-a="o_quote">金句：儲存</button><button class="btn alt" data-a="o_clear">取消</button></div><div id="ochips">${ocr.step||''}</div>`:`<button class="btn alt" data-a="o_clear">關閉</button>`}`}`;
+}
+const bookOpts=()=>'<option value="">選擇書籍…</option>'+[...books].sort((a,b)=>a.title.localeCompare(b.title,'zh-Hant')).map(b=>`<option value="${b.book_id}">${esc(b.title)}</option>`).join('');
+const qtext=()=>($('#o_txt')?.value||'').trim().replace(/([\u3400-\u9fff，。！？」』）])\n(?=[\u3400-\u9fff「『（])/g,'$1');
+function inboxSheet(){
+ openSheet(`<h2>暫存金句（${inbox.length}）</h2>`+(inbox.length?inbox.map(x=>`<div class="card"><p class="txt">${esc(x.content)}</p><p class="pg">${x.page_number?'第 '+esc(x.page_number)+' 頁':'未填頁碼'}</p><select id="ib_${x.book_id}">${bookOpts()}</select><div class="acts" style="margin-top:8px"><button class="btn" data-a="ib_file" data-x="${x.book_id}">歸檔到這本書</button><button class="btn bad" data-a="ib_del" data-x="${x.book_id}">刪除</button></div></div>`).join(''):'<p class="empty">沒有暫存的金句。</p>')+'<div class="acts"><button class="btn alt" data-a="close">關閉</button></div>');
+}
 document.addEventListener('click',async e=>{
  if(e.target.id==='sheet')return closeSheet();
  const t=e.target.closest('[data-a]');if(!t)return;
@@ -310,6 +356,24 @@ document.addEventListener('click',async e=>{
  else if(a==='qedit'&&b){qEdit=t.dataset.x;showDetail(b.book_id);$('#q_txt').focus()}
  else if(a==='qcancel'&&b){qEdit=null;showDetail(b.book_id)}
  else if(a==='qdel'&&b){if(confirm('刪除這句金句？'))upd(b,x=>{x.quotes=x.quotes.filter(z=>z.quote_id!==t.dataset.x)})}
+ else if(a==='cam')$('#f_cam').click();
+ else if(a==='pic')$('#f_pic').click();
+ else if(a==='o_clear'){ocr=null;render()}
+ else if(a==='o_book'){const L=(ocr.text||'').split('\n').map(x=>x.trim()).filter(x=>x.length>=2).slice(0,12);ocrLines=L;
+  ocr.step=L.length?'<p class="note">點書名那一行來搜尋（也可以先修改上方文字）：</p>'+L.map((l,i)=>`<button class="row" data-a="o_pick" data-i="${i}">${esc(l)}</button>`).join(''):'<p class="note">沒有可用的文字，請在上方輸入書名後再試。</p>';render()}
+ else if(a==='o_pick'){sq=ocrLines[+t.dataset.i]||'';render();const el=$('#sq');if(el)el.scrollIntoView({block:'center'});doSearch()}
+ else if(a==='o_quote'){ocr.step='<label>頁碼（可選）</label><input id="o_pg" placeholder="例如 123"><label>加入哪一本書？</label><select id="o_sel">'+bookOpts()+'</select><div class="acts" style="margin-top:10px"><button class="btn" data-a="oq_add">加到這本書</button><button class="btn alt" data-a="oq_new">建立新書後加入</button><button class="btn alt" data-a="oq_inbox">暫時保存，稍後歸檔</button></div>';render()}
+ else if(a==='oq_add'){const v=qtext(),id=$('#o_sel').value;if(!v)return alert('沒有可儲存的文字');if(!id)return alert('請先選擇書籍');const b2=books.find(x=>x.book_id===id);if(!b2)return;
+  const now=new Date().toISOString();(b2.quotes=b2.quotes||[]).push({quote_id:uid(),book_id:id,content:v,page_number:$('#o_pg').value.trim(),created_at:now});b2.updated_at=now;await put('books',b2);ocr={msg:'已將金句加入《'+b2.title+'》。'};render();queueSync()}
+ else if(a==='oq_new'){const v=qtext();if(!v)return alert('沒有可儲存的文字');pendingQ={content:v,page:$('#o_pg').value.trim()};ocr=null;render();scrollTo(0,0)}
+ else if(a==='oq_inbox'){const v=qtext();if(!v)return alert('沒有可儲存的文字');const now=new Date().toISOString();
+  await put('books',{book_id:'inbox-'+uid(),is_inbox:true,title:'（暫存金句）',content:v,page_number:$('#o_pg').value.trim(),created_at:now,updated_at:now});await loadBooks();ocr={msg:'已暫存。之後可在首頁的「暫存金句」歸檔。'};render();queueSync()}
+ else if(a==='pq_cancel'){pendingQ=null;render()}
+ else if(a==='inbox')inboxSheet();
+ else if(a==='ib_file'){const id=t.dataset.x,sel=$('#ib_'+id)?.value,it=inbox.find(x=>x.book_id===id),tg=books.find(x=>x.book_id===sel);if(!it)return;if(!tg)return alert('請先選擇書籍');
+  const now=new Date().toISOString();(tg.quotes=tg.quotes||[]).push({quote_id:uid(),book_id:tg.book_id,content:it.content,page_number:it.page_number||'',created_at:now});tg.updated_at=now;
+  await put('books',tg);await put('books',{...it,deleted:true,updated_at:now});await loadBooks();render();inboxSheet();queueSync()}
+ else if(a==='ib_del'){const it=inbox.find(x=>x.book_id===t.dataset.x);if(it&&confirm('刪除這句暫存金句？')){await put('books',{...it,deleted:true,updated_at:new Date().toISOString()});await loadBooks();render();inboxSheet();queueSync()}}
  else if(a==='search')doSearch();
  else if(a==='pick'){const r=sr[+t.dataset.i];if(!r)return;
   if(!r.desc&&r.key){try{const w=await fj('https://openlibrary.org'+r.key+'.json'),d=w.description;r.desc=typeof d==='string'?d:(d&&d.value)||''}catch(err){}}
@@ -321,12 +385,13 @@ document.addEventListener('click',async e=>{
  else if(a==='save')save();
  else if(a==='close')closeSheet();
 });
-document.addEventListener('input',e=>{if(e.target.id==='q'){q=e.target.value;$('#list').innerHTML=listHTML()}else if(e.target.id==='sq')sq=e.target.value});
+document.addEventListener('input',e=>{if(e.target.id==='q'){q=e.target.value;$('#list').innerHTML=listHTML()}else if(e.target.id==='sq')sq=e.target.value;else if(e.target.id==='o_txt'&&ocr)ocr.text=e.target.value});
 document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.id==='sq'){e.preventDefault();e.target.blur();doSearch()}});
 document.addEventListener('change',e=>{const i=e.target.id;
  if(i==='catF'){catF=e.target.value;$('#list').innerHTML=listHTML()}
  else if(i==='yF'){yF=e.target.value;$('#list').innerHTML=listHTML()}
  else if(i==='sy'){sy=+e.target.value;render()}
+ else if(i==='f_cam'||i==='f_pic'){const f=e.target.files[0];e.target.value='';onImage(f)}
  else if(i==='f_status')$('#readbox').style.display=e.target.value==='read'?'block':'none';
  else if(i==='f_src')$('#f_srco').style.display=e.target.value==='__o'?'block':'none';
 });
