@@ -74,7 +74,7 @@ label{display:block;margin:14px 0 4px;font-size:14px;color:var(--mute)}
 </nav>
 <div id="sheet"><div id="panel"></div></div>
 <script>
-const APP_VERSION='2026-11-19-1';
+const APP_VERSION='2026-11-19-2';
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid=()=>crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2);
@@ -420,10 +420,16 @@ document.addEventListener('click',async e=>{
   if(!r.desc&&r.key){try{const w=await fj('https://openlibrary.org'+r.key+'.json'),d=w.description;r.desc=typeof d==='string'?d:(d&&d.value)||''}catch(err){}}
   editing={cover_image:r.cover};openSheet(form({title:r.title,author:r.author,description:r.desc,category_id:r.cat,status:'want',cover_image:r.cover}))}
  else if(a==='settings')settings();
- else if(a==='ssave'){localStorage.setItem('ru_gkey',($('#s_gk').value||'').trim());const u=$('#s_url').value.trim(),k=$('#s_key').value.trim();if(!/^https:\/\/script\.google\.com\/.+\/exec$/.test(u))return alert('網址格式不對，結尾應為 /exec');if(!k)return alert('請輸入密碼');localStorage.setItem('ru_url',u);localStorage.setItem('ru_key',k);localStorage.removeItem('ru_last');sync()}
- else if(a==='slink'){const c=cfg(),o={u:c.u,k:c.k,g:localStorage.getItem('ru_gkey')||''};if(!o.u||!o.k)return alert('請先完成雲端同步設定');
-  const link=location.origin+location.pathname+'#setup='+btoa(unescape(encodeURIComponent(JSON.stringify(o))));
-  try{await navigator.clipboard.writeText(link);setSt(syncSt,'已複製設定連結。請貼到你的備忘錄保存，不要分享給別人。')}catch(err){prompt('請全選並複製這個連結：',link)}}
+ else if(a==='ssave'){const g=($('#s_gk')?.value||'').trim(),u=($('#s_url')?.value||'').replace(/\s+/g,''),k=($('#s_key')?.value||'').trim(),m=$('#s_msg');
+  localStorage.setItem('ru_gkey',g);
+  if(!u){m.textContent='第一欄（網頁應用程式網址）是空的。';return}
+  if(!/^https:\/\/script\.google\.com\/.+\/exec$/.test(u)){m.textContent='第一欄的網址格式不對（結尾應為 /exec）。你貼的開頭是：'+u.slice(0,40);return}
+  if(!k){m.textContent='第二欄（密碼）是空的。';return}
+  localStorage.setItem('ru_url',u);localStorage.setItem('ru_key',k);localStorage.removeItem('ru_last');m.textContent='設定已儲存，同步中…';sync()}
+ else if(a==='slink'){const c=cfg(),u=($('#s_url')?.value||c.u).replace(/\s+/g,''),k=($('#s_key')?.value||c.k).trim(),g=($('#s_gk')?.value||localStorage.getItem('ru_gkey')||'').trim(),m=$('#s_msg');
+  if(!u||!k){m.textContent='無法產生連結：'+(!u?'第一欄（網址）':'第二欄（密碼）')+'是空的。';return}
+  const link=location.origin+location.pathname+'#setup='+btoa(unescape(encodeURIComponent(JSON.stringify({u,k,g}))));
+  try{await navigator.clipboard.writeText(link);m.textContent='已複製設定連結。請貼到備忘錄保存，不要分享給別人。'}catch(err){prompt('請全選並複製這個連結：',link)}}
  else if(a==='snow')sync();
  else if(a==='soff'){if(confirm('中斷後不再同步，這支手機上的資料仍會保留。確定嗎？')){localStorage.removeItem('ru_url');localStorage.removeItem('ru_key');localStorage.removeItem('ru_last');syncSt='';syncAt='';setSt('','已中斷連線');render()}}
  else if(a==='save')save();
