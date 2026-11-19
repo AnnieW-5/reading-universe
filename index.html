@@ -74,6 +74,7 @@ label{display:block;margin:14px 0 4px;font-size:14px;color:var(--mute)}
 </nav>
 <div id="sheet"><div id="panel"></div></div>
 <script>
+const APP_VERSION='2026-11-19-1';
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid=()=>crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2);
@@ -257,6 +258,8 @@ function settings(){
  <label>密碼</label><input id="s_key" type="password" value="${esc(c.k)}" autocapitalize="off">
  <label>Google Books 金鑰（選填）</label><input id="s_gk" value="${esc(localStorage.getItem('ru_gkey')||'')}" placeholder="書籍搜尋額度不足時才需要" autocapitalize="off">
  <p class="note" id="s_msg">${esc(syncMsg)}</p>
+ <div class="acts"><button class="btn alt" data-a="slink">複製設定連結</button></div>
+ <p class="note">設定連結含有你的網址與密碼，請只存在自己的備忘錄，不要分享。重新安裝 App 時，用 Safari 開這個連結再「加入主畫面」，設定會自動帶入。<br>版本：${APP_VERSION}</p>
  <div class="acts"><button class="btn" data-a="ssave">儲存並同步</button><button class="btn alt" data-a="snow">立即同步</button><button class="btn bad" data-a="soff">中斷連線</button><button class="btn alt" data-a="close">關閉</button></div>`);
 }
 let sr=[],sq='',smsg='',sbusy=false;
@@ -307,13 +310,26 @@ async function shrink(f){
  return{blob:await new Promise(r=>c.toBlob(r,'image/jpeg',.9)),url:u};
 }
 const cleanOcr=t=>t.split('\n').map(l=>l.replace(/([\u3400-\u9fff，。！？：；、「」『』（）])[ \t]+(?=[\u3400-\u9fff，。！？：；、「」『』（）])/g,'$1').trim()).filter(Boolean).join('\n');
+function ocrLinesOf(d){
+ let L=d.lines;
+ if(!L||!L.length){L=[];for(const b of d.blocks||[])for(const p of b.paragraphs||[])for(const l of p.lines||[])L.push(l)}
+ return L.map(l=>({t:cleanOcr(l.text||'').replace(/\n/g,' ').trim(),h:(l.bbox?l.bbox.y1-l.bbox.y0:0),y:(l.bbox?l.bbox.y0:0),c:l.confidence||0})).filter(l=>l.c>=45&&/[\u3400-\u9fffA-Za-z0-9]{2,}/.test(l.t));
+}
+function guessTitle(L){
+ if(!L.length)return '';
+ const H=Math.max(...L.map(l=>l.h)),by=[...L].sort((a,b)=>a.y-b.y),gs=[];let cur=[];
+ for(const l of by){if(l.h>=H*0.7)cur.push(l);else if(cur.length){gs.push(cur);cur=[]}}
+ if(cur.length)gs.push(cur);
+ gs.sort((a,b)=>Math.max(...b.map(x=>x.h))-Math.max(...a.map(x=>x.h)));
+ return cleanOcr(gs[0].map(l=>l.t).join(' '));
+}
 async function onImage(f){
  if(!f)return;
  ocr={busy:true,msg:'準備圖片…',url:'',text:''};tab='add';render();
  try{
   const r=await shrink(f);ocr.url=r.url;render();setOcrMsg('準備辨識…');
   const w=await getWorker(),res=await w.recognize(r.blob);
-  ocr={url:r.url,text:cleanOcr(res.data.text||''),busy:false,msg:''};
+  const tx=cleanOcr(res.data.text||'');ocr={url:r.url,text:tx,orig:tx,lines:ocrLinesOf(res.data),busy:false,msg:''};
   if(!ocr.text)ocr.msg='沒有辨識到文字。可重拍、換一張圖，或在下方直接輸入文字。';
  }catch(err){ocr={url:ocr?.url||'',text:'',busy:false,msg:'辨識失敗：'+err.message+'。你仍可在下方手動輸入文字，或改用手動新增。'}}
  render();
@@ -328,6 +344,25 @@ const bookOpts=()=>'<option value="">選擇書籍…</option>'+[...books].sort((
 const qtext=()=>($('#o_txt')?.value||'').trim().replace(/([\u3400-\u9fff，。！？」』）])\n(?=[\u3400-\u9fff「『（])/g,'$1');
 function inboxSheet(){
  openSheet(`<h2>暫存金句（${inbox.length}）</h2>`+(inbox.length?inbox.map(x=>`<div class="card"><p class="txt">${esc(x.content)}</p><p class="pg">${x.page_number?'第 '+esc(x.page_number)+' 頁':'未填頁碼'}</p><select id="ib_${x.book_id}">${bookOpts()}</select><div class="acts" style="margin-top:8px"><button class="btn" data-a="ib_file" data-x="${x.book_id}">歸檔到這本書</button><button class="btn bad" data-a="ib_del" data-x="${x.book_id}">刪除</button></div></div>`).join(''):'<p class="empty">沒有暫存的金句。</p>')+'<div class="acts"><button class="btn alt" data-a="close">關閉</button></div>');
+}
+async function checkUpdate(){
+ if($('#sheet').classList.contains('open')||(ocr&&ocr.busy))return;
+ try{
+  const r=await fetch(location.pathname+'?_='+Date.now(),{cache:'no-store'});if(!r.ok)return;
+  const m=(await r.text()).match(/APP_VERSION\s*=\s*'([^']+)'/);
+  if(m&&m[1]!==APP_VERSION&&sessionStorage.getItem('ru_reload')!==m[1]){
+   sessionStorage.setItem('ru_reload',m[1]);
+   location.replace(location.pathname+'?v='+encodeURIComponent(m[1])+location.hash);
+  }
+ }catch(e){}
+}
+function applySetup(){
+ const m=location.hash.match(/^#setup=(.+)$/);if(!m||localStorage.getItem('ru_url'))return;
+ try{const o=JSON.parse(decodeURIComponent(escape(atob(m[1]))));
+  if(o.u)localStorage.setItem('ru_url',o.u);if(o.k)localStorage.setItem('ru_key',o.k);if(o.g)localStorage.setItem('ru_gkey',o.g);
+  localStorage.removeItem('ru_last');
+ }catch(e){}
+ history.replaceState(null,'',location.pathname);
 }
 document.addEventListener('click',async e=>{
  if(e.target.id==='sheet')return closeSheet();
@@ -359,8 +394,14 @@ document.addEventListener('click',async e=>{
  else if(a==='cam')$('#f_cam').click();
  else if(a==='pic')$('#f_pic').click();
  else if(a==='o_clear'){ocr=null;render()}
- else if(a==='o_book'){const L=(ocr.text||'').split('\n').map(x=>x.trim()).filter(x=>x.length>=2).slice(0,12);ocrLines=L;
-  ocr.step=L.length?'<p class="note">點書名那一行來搜尋（也可以先修改上方文字）：</p>'+L.map((l,i)=>`<button class="row" data-a="o_pick" data-i="${i}">${esc(l)}</button>`).join(''):'<p class="note">沒有可用的文字，請在上方輸入書名後再試。</p>';render()}
+ else if(a==='o_book'){
+  const fresh=ocr.lines&&ocr.lines.length&&ocr.text===ocr.orig;
+  const g=fresh?guessTitle(ocr.lines):'';
+  const rest=fresh?[...ocr.lines].sort((x,y)=>y.h-x.h).map(x=>x.t):(ocr.text||'').split('\n').map(x=>x.trim()).filter(x=>x.length>=2);
+  ocrLines=[g,...rest.filter(x=>x!==g)].filter(Boolean).slice(0,12);
+  ocr.step=ocrLines.length?'<p class="note">'+(g?'已依字體大小推測書名並自動搜尋。如果不對，點下面其他行重新搜尋（字體大的排前面）：':'點書名那一行來搜尋（也可以先修改上方文字）：')+'</p>'+ocrLines.map((l,i)=>`<button class="row" data-a="o_pick" data-i="${i}">${i===0&&g?'推測書名：':''}${esc(l)}</button>`).join(''):'<p class="note">沒有可用的文字，請在上方輸入書名後再試。</p>';
+  if(g)sq=g;render();
+  if(g){const el=$('#sq');if(el)el.scrollIntoView({block:'center'});doSearch()}}
  else if(a==='o_pick'){sq=ocrLines[+t.dataset.i]||'';render();const el=$('#sq');if(el)el.scrollIntoView({block:'center'});doSearch()}
  else if(a==='o_quote'){ocr.step='<label>頁碼（可選）</label><input id="o_pg" placeholder="例如 123"><label>加入哪一本書？</label><select id="o_sel">'+bookOpts()+'</select><div class="acts" style="margin-top:10px"><button class="btn" data-a="oq_add">加到這本書</button><button class="btn alt" data-a="oq_new">建立新書後加入</button><button class="btn alt" data-a="oq_inbox">暫時保存，稍後歸檔</button></div>';render()}
  else if(a==='oq_add'){const v=qtext(),id=$('#o_sel').value;if(!v)return alert('沒有可儲存的文字');if(!id)return alert('請先選擇書籍');const b2=books.find(x=>x.book_id===id);if(!b2)return;
@@ -380,6 +421,9 @@ document.addEventListener('click',async e=>{
   editing={cover_image:r.cover};openSheet(form({title:r.title,author:r.author,description:r.desc,category_id:r.cat,status:'want',cover_image:r.cover}))}
  else if(a==='settings')settings();
  else if(a==='ssave'){localStorage.setItem('ru_gkey',($('#s_gk').value||'').trim());const u=$('#s_url').value.trim(),k=$('#s_key').value.trim();if(!/^https:\/\/script\.google\.com\/.+\/exec$/.test(u))return alert('網址格式不對，結尾應為 /exec');if(!k)return alert('請輸入密碼');localStorage.setItem('ru_url',u);localStorage.setItem('ru_key',k);localStorage.removeItem('ru_last');sync()}
+ else if(a==='slink'){const c=cfg(),o={u:c.u,k:c.k,g:localStorage.getItem('ru_gkey')||''};if(!o.u||!o.k)return alert('請先完成雲端同步設定');
+  const link=location.origin+location.pathname+'#setup='+btoa(unescape(encodeURIComponent(JSON.stringify(o))));
+  try{await navigator.clipboard.writeText(link);setSt(syncSt,'已複製設定連結。請貼到你的備忘錄保存，不要分享給別人。')}catch(err){prompt('請全選並複製這個連結：',link)}}
  else if(a==='snow')sync();
  else if(a==='soff'){if(confirm('中斷後不再同步，這支手機上的資料仍會保留。確定嗎？')){localStorage.removeItem('ru_url');localStorage.removeItem('ru_key');localStorage.removeItem('ru_last');syncSt='';syncAt='';setSt('','已中斷連線');render()}}
  else if(a==='save')save();
@@ -397,13 +441,14 @@ document.addEventListener('change',e=>{const i=e.target.id;
 });
 setInterval(()=>{const el=$('#tm');if(!el)return;const b=books.find(x=>x.book_id===el.dataset.id);if(b)el.textContent=fd(elapsed(b)/1000)},1000);
 (async()=>{
+ applySetup();
  try{db=await openDB();cats=await getAll('categories');
   if(!cats.length){cats=DEF.map((name,i)=>({category_id:'c'+(i+1),name}));for(const c of cats)await put('categories',c)}
   await loadBooks();navigator.storage?.persist?.();
  }catch(err){$('#app').innerHTML='<p class="empty">無法使用瀏覽器儲存空間。請確認不是無痕模式，並用 Safari 開啟。</p>';return}
- render();sync();
+ render();sync();checkUpdate();
 })();
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')sync()});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){sync();checkUpdate()}});
 </script>
 </body>
 </html>
