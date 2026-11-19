@@ -59,6 +59,9 @@ label{display:block;margin:14px 0 4px;font-size:14px;color:var(--mute)}
 .tm{font:700 36px "Songti TC",serif;text-align:center;margin:4px 0;font-variant-numeric:tabular-nums}
 .txt{white-space:pre-wrap;margin:0 0 6px}
 .pg{font-size:13px;color:var(--mute)}
+ .res{display:flex;gap:12px;align-items:center;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:none;padding:10px 2px}
+.res img,.res i{width:44px;height:66px;object-fit:cover;border-radius:2px;flex:none;background:#cfd6d0}
+.res span{font-size:14px;color:var(--mute)}.res b{font-size:16px;color:var(--ink)}
 </style>
 </head>
 <body>
@@ -91,7 +94,7 @@ async function loadBooks(){books=(await getAll('books')).filter(b=>!b.deleted)}
 const catName=id=>cats.find(c=>c.category_id===id)?.name||'未分類';
 const dur=s=>{s=s||0;return Math.floor(s/3600)+' 小時 '+Math.floor(s%3600/60)+' 分'};
 const hue=t=>{let h=0;for(const c of t)h=(h*31+c.charCodeAt(0))%360;return h};
-const coverEl=b=>{const h=hue(b.title);return `<div class="cover" style="background:linear-gradient(160deg,hsl(${h} 38% 34%),hsl(${(h+30)%360} 40% 22%))"><span>${esc(b.title)}</span><small>${esc(b.author)}</small></div>`};
+const coverEl=b=>{const h=hue(b.title);return `<div class="cover" style="position:relative;background:linear-gradient(160deg,hsl(${h} 38% 34%),hsl(${(h+30)%360} 40% 22%))">${b.cover_image?`<img src="${esc(b.cover_image)}" alt="" loading="lazy" onerror="this.remove()" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">`:''}<span>${esc(b.title)}</span><small>${esc(b.author)}</small></div>`};
 const cover=b=>`<button class="bk" data-a="book" data-id="${b.book_id}">${coverEl(b)}</button>`;
 const row=b=>`<button class="row" data-a="book" data-id="${b.book_id}"><b>${esc(b.title)}</b><span>${esc(b.author)||'作者未填'} ・ ${esc(catName(b.category_id))}</span></button>`;
 const reads=()=>books.filter(b=>b.status==='read');
@@ -139,8 +142,9 @@ function sumPage(){
  <p class="note">封面牆、圓形輪播與書架展示將在 Phase 5 加入。</p>`;
 }
 function addPage(){
- return `<h1>新增書籍</h1><div class="card"><h2>手動輸入</h2><p class="note" style="margin-top:0">輸入書名、作者與閱讀資料。</p><button class="btn" data-a="new">開始輸入</button></div>
- <div class="card"><h2>搜尋・拍照・相簿</h2><p class="note" style="margin-top:0">自動取得封面與簡介、辨識圖片文字，將在 Phase 4 開放。</p><button class="btn" disabled>尚未開放</button></div>`;
+ return `<h1>新增書籍</h1><div class="card"><h2>搜尋書籍</h2><div class="two" style="grid-template-columns:1fr auto"><input id="sq" placeholder="書名、作者或 ISBN" value="${esc(sq)}" enterkeyhint="search" autocapitalize="off"><button class="btn" data-a="search">搜尋</button></div><p class="note" id="smsg">${esc(smsg)}</p><div id="sres">${srHTML()}</div></div>
+ <div class="card"><h2>手動輸入</h2><p class="note" style="margin-top:0">找不到書時，自己輸入書名與作者。</p><button class="btn alt" data-a="new">開始輸入</button></div>
+ <div class="card"><h2>拍照・相簿</h2><p class="note" style="margin-top:0">辨識書封與金句截圖，將在下一步（Phase 4b）開放。</p><button class="btn" disabled>尚未開放</button></div>`;
 }
 function render(){
  $('#app').innerHTML={home,books:booksPage,sum:sumPage,add:addPage}[tab]();
@@ -180,7 +184,8 @@ function detail(b){
 }
 function form(b){
  const rd=b.status==='read',s=b.reading_source||'',cu=s&&!SRC.includes(s),t=b.total_reading_seconds||0;
- return `<h2>${b.book_id?'編輯書籍':'新增書籍'}</h2>
+ return `<h2>${b.book_id?'編輯書籍':'新增書籍'}</h2>${b.cover_image?`<div style="width:90px;margin:6px 0">${coverEl(b)}</div>`:''}
+ ${b.cover_image?`<div style="display:flex;gap:12px;align-items:center"><img src="${esc(b.cover_image)}" alt="" onerror="this.remove()" style="width:60px;height:90px;object-fit:cover;border-radius:3px"><span class="note" style="margin:0">已帶入封面，請確認資料後儲存</span></div>`:''}
  <label>書名 *</label><input id="f_title" value="${esc(b.title)}">
  <label>作者</label><input id="f_author" value="${esc(b.author)}">
  <label>分類</label><select id="f_cat">${cats.map(c=>`<option value="${c.category_id}"${c.category_id===b.category_id?' selected':''}>${esc(c.name)}</option>`).join('')}</select>
@@ -244,8 +249,39 @@ function settings(){
  openSheet(`<h2>雲端同步</h2><p class="note" style="margin-top:0">資料會同步到你自己 Google 帳號裡的 Google Sheet。需先完成 Apps Script 部署。</p>
  <label>網頁應用程式網址</label><input id="s_url" value="${esc(c.u)}" placeholder="https://script.google.com/macros/s/…/exec" autocapitalize="off" autocorrect="off">
  <label>密碼</label><input id="s_key" type="password" value="${esc(c.k)}" autocapitalize="off">
+ <label>Google Books 金鑰（選填）</label><input id="s_gk" value="${esc(localStorage.getItem('ru_gkey')||'')}" placeholder="書籍搜尋額度不足時才需要" autocapitalize="off">
  <p class="note" id="s_msg">${esc(syncMsg)}</p>
  <div class="acts"><button class="btn" data-a="ssave">儲存並同步</button><button class="btn alt" data-a="snow">立即同步</button><button class="btn bad" data-a="soff">中斷連線</button><button class="btn alt" data-a="close">關閉</button></div>`);
+}
+let sr=[],sq='',smsg='',sbusy=false;
+const CATMAP=[[/histor|歷史|史/i,'歷史'],[/fiction|literar|novel|poetry|drama|小說|文學|詩/i,'小說／文學'],[/psycholog|self-help|self help|心理|自我成長|勵志/i,'心理／自我成長'],[/philosoph|religio|哲學|思想|宗教/i,'哲學／思想'],[/business|econom|financ|management|商業|經濟|管理|理財/i,'商業／經濟'],[/politic|social|\blaw\b|sociolog|社會|政治|法律/i,'社會／政治'],[/biograph|memoir|傳記|人物/i,'傳記／人物'],[/\barts?\b|design|music|cultur|photograph|藝術|文化|設計|音樂/i,'藝術／文化'],[/scien|technolog|comput|math|medical|nature|科學|科技|電腦|數學/i,'科學／科技']];
+const guessCat=t=>{const n=(CATMAP.find(([r])=>r.test(t))||[0,'其他'])[1];return (cats.find(c=>c.name===n)||cats[cats.length-1])?.category_id};
+const htmlText=h=>{try{return new DOMParser().parseFromString(h,'text/html').body.textContent.trim()}catch(e){return h}};
+const norm=t=>String(t||'').toLowerCase().replace(/[\s\-—:：、,，.。()（）]/g,'');
+const fj=async u=>{const r=await fetch(u);if(!r.ok)throw new Error(r.status);return r.json()};
+function srHTML(){return sr.map((r,i)=>`<button class="row" data-a="pick" data-i="${i}" style="display:flex;gap:12px;align-items:center"><div style="width:48px;flex:none">${coverEl({title:r.title,author:'',cover_image:r.cover})}</div><div><b>${esc(r.title)}</b><span>${esc(r.author)||'作者未知'}${r.year?' ・ '+esc(r.year):''}</span></div></button>`).join('')}
+function paintSR(){const r=$('#sres');if(r)r.innerHTML=srHTML();const m=$('#smsg');if(m)m.textContent=smsg}
+async function doSearch(){
+ const q0=sq.trim();if(!q0||sbusy)return;sbusy=true;sr=[];smsg='搜尋中…';paintSR();
+ const isb=q0.replace(/[-\s]/g,''),isI=/^(\d{9}[\dXx]|\d{13})$/.test(isb),gk=localStorage.getItem('ru_gkey')||'';
+ const gu='https://www.googleapis.com/books/v1/volumes?maxResults=20&printType=books&q='+encodeURIComponent(isI?'isbn:'+isb:q0)+(gk?'&key='+encodeURIComponent(gk):'');
+ const ou='https://openlibrary.org/search.json?limit=12&fields=key,title,author_name,cover_i,first_publish_year,subject&'+(isI?'isbn='+isb:'q='+encodeURIComponent(q0));
+ const cjk=/[\u3400-\u9fff]/.test(q0);
+ const gj=async()=>{let d=await fj(gu+(cjk?'&langRestrict=zh':''));if(!(d.items||[]).length&&cjk)d=await fj(gu);return d};
+ const [g,o]=await Promise.allSettled([gj(),fj(ou)]);
+ const out=[];
+ if(g.status==='fulfilled')for(const it of g.value.items||[]){const v=it.volumeInfo||{};if(!v.title)continue;
+  const cv=(v.imageLinks?.thumbnail||v.imageLinks?.smallThumbnail||'').replace(/^http:/,'https:').replace('&edge=curl','');
+  out.push({title:v.title+(v.subtitle?'：'+v.subtitle:''),author:(v.authors||[]).join('、'),desc:htmlText(v.description||''),cover:cv,year:(v.publishedDate||'').slice(0,4),cat:guessCat((v.categories||[]).join(' ')+' '+v.title),lang:v.language||''})}
+ if(o.status==='fulfilled')for(const d of o.value.docs||[]){if(!d.title)continue;
+  const cover=d.cover_i?'https://covers.openlibrary.org/b/id/'+d.cover_i+'-M.jpg':'';
+  const m=out.find(x=>norm(x.title)===norm(d.title));
+  if(m){if(!m.cover&&cover)m.cover=cover;continue}
+  out.push({title:d.title,author:(d.author_name||[]).slice(0,3).join('、'),desc:'',cover,year:d.first_publish_year||'',cat:guessCat((d.subject||[]).slice(0,6).join(' ')+' '+d.title),key:d.key,lang:''})}
+ if(/[\u4e00-\u9fff]/.test(q0))out.sort((x,y)=>(y.lang.startsWith('zh')?1:0)-(x.lang.startsWith('zh')?1:0));
+ sr=out;
+ smsg=out.length?(g.status==='rejected'?'Google Books 暫時無法使用（免費額度可能已滿），目前只顯示 Open Library 的結果。':'請點選正確的書，確認後再儲存。'):(g.status==='rejected'&&o.status==='rejected'?'搜尋失敗，請確認網路，或改用手動輸入。':'找不到資料，可改用手動輸入。');
+ sbusy=false;paintSR();
 }
 document.addEventListener('click',async e=>{
  if(e.target.id==='sheet')return closeSheet();
@@ -274,14 +310,19 @@ document.addEventListener('click',async e=>{
  else if(a==='qedit'&&b){qEdit=t.dataset.x;showDetail(b.book_id);$('#q_txt').focus()}
  else if(a==='qcancel'&&b){qEdit=null;showDetail(b.book_id)}
  else if(a==='qdel'&&b){if(confirm('刪除這句金句？'))upd(b,x=>{x.quotes=x.quotes.filter(z=>z.quote_id!==t.dataset.x)})}
+ else if(a==='search')doSearch();
+ else if(a==='pick'){const r=sr[+t.dataset.i];if(!r)return;
+  if(!r.desc&&r.key){try{const w=await fj('https://openlibrary.org'+r.key+'.json'),d=w.description;r.desc=typeof d==='string'?d:(d&&d.value)||''}catch(err){}}
+  editing={cover_image:r.cover};openSheet(form({title:r.title,author:r.author,description:r.desc,category_id:r.cat,status:'want',cover_image:r.cover}))}
  else if(a==='settings')settings();
- else if(a==='ssave'){const u=$('#s_url').value.trim(),k=$('#s_key').value.trim();if(!/^https:\/\/script\.google\.com\/.+\/exec$/.test(u))return alert('網址格式不對，結尾應為 /exec');if(!k)return alert('請輸入密碼');localStorage.setItem('ru_url',u);localStorage.setItem('ru_key',k);localStorage.removeItem('ru_last');sync()}
+ else if(a==='ssave'){localStorage.setItem('ru_gkey',($('#s_gk').value||'').trim());const u=$('#s_url').value.trim(),k=$('#s_key').value.trim();if(!/^https:\/\/script\.google\.com\/.+\/exec$/.test(u))return alert('網址格式不對，結尾應為 /exec');if(!k)return alert('請輸入密碼');localStorage.setItem('ru_url',u);localStorage.setItem('ru_key',k);localStorage.removeItem('ru_last');sync()}
  else if(a==='snow')sync();
  else if(a==='soff'){if(confirm('中斷後不再同步，這支手機上的資料仍會保留。確定嗎？')){localStorage.removeItem('ru_url');localStorage.removeItem('ru_key');localStorage.removeItem('ru_last');syncSt='';syncAt='';setSt('','已中斷連線');render()}}
  else if(a==='save')save();
  else if(a==='close')closeSheet();
 });
-document.addEventListener('input',e=>{if(e.target.id==='q'){q=e.target.value;$('#list').innerHTML=listHTML()}});
+document.addEventListener('input',e=>{if(e.target.id==='q'){q=e.target.value;$('#list').innerHTML=listHTML()}else if(e.target.id==='sq')sq=e.target.value});
+document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.id==='sq'){e.preventDefault();e.target.blur();doSearch()}});
 document.addEventListener('change',e=>{const i=e.target.id;
  if(i==='catF'){catF=e.target.value;$('#list').innerHTML=listHTML()}
  else if(i==='yF'){yF=e.target.value;$('#list').innerHTML=listHTML()}
