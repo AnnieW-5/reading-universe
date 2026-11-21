@@ -87,7 +87,7 @@ button.bar{width:100%;background:none;border:0;padding:3px 0;text-align:left}
 </nav>
 <div id="sheet"><div id="panel"></div></div>
 <script>
-const APP_VERSION='2026-11-20-2';
+const APP_VERSION='2026-11-21-2';
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid=()=>crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2);
@@ -119,7 +119,7 @@ function home(){
  const added=[...books].sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,8);
  const rec=[...reads()].sort((a,b)=>(b.completed_year*100+(b.completed_month||0))-(a.completed_year*100+(a.completed_month||0))).slice(0,8);
  const sh=(t,a,m)=>`<h3>${t}</h3>`+(a.length?`<div class="shelf">${a.map(cover).join('')}</div>`:`<p class="empty">${m}</p>`);
- return `<h1>My Reading Universe</h1><button class="lk" id="syncl" data-a="settings" style="padding:0 0 8px">${syncLabel()}</button>${inbox.length?`<br><button class="lk" data-a="inbox" style="padding:0 0 8px">📝 暫存金句（${inbox.length}）</button>`:''}
+ return `<h1>My Reading Universe</h1><button class="lk" id="syncl" data-a="settings" style="padding:0 0 8px">${syncLabel()}</button>${inbox.length?`<br><button class="lk" data-a="inbox" style="padding:0 0 8px">📝 暫存金句（${inbox.length}）</button>`:''}${wrLabel()?`<br><span class="pg" id="wrl">${esc(wrLabel())}</span>`:''}
  <div class="stats"><div class="stat"><b>${yb.length}</b><span>${NOW} 年已讀完（本）</span></div><div class="stat"><b>${Math.floor(secs/3600)}<small style="font-size:15px"> 時 ${Math.floor(secs%3600/60)} 分</small></b><span>${NOW} 年閱讀時長</span></div></div>
  <button class="btn" data-a="new">＋ 快速新增書籍</button>
  ${sh('最近新增',added,'還沒有書，從上方按鈕新增第一本。')}
@@ -198,6 +198,7 @@ function addPage(){
  <div class="acts" style="margin-top:0"><button class="btn" data-a="cam">拍照</button><button class="btn alt" data-a="pic">從相簿選擇</button></div>
  <input type="file" id="f_cam" accept="image/*" capture="environment" hidden><input type="file" id="f_pic" accept="image/*" hidden>
  ${ocrHTML()}</div>
+ <div class="card"><h2>微信讀書匯入</h2><p class="note" style="margin-top:0">匯入書架上的書、完讀時間、閱讀時長、劃線與想法。需先完成雲端同步，並在 Apps Script 填入微信讀書 API Key。</p><div class="acts" style="margin-top:0"><button class="btn" data-a="wr_open">匯入／設定</button><button class="btn alt" data-a="wr_sync">立即同步</button></div><p class="note" id="wrstat">${esc(wrSt||(localStorage.getItem('ru_wr_auto')==='1'?'自動同步已開啟：開啟 App 時約每 3 小時更新一次。':'尚未開啟自動同步，可在「匯入／設定」勾選。'))}</p></div>
  <div class="card"><h2>手動輸入</h2><p class="note" style="margin-top:0">找不到書或辨識失敗時，自己輸入書名與作者。</p><button class="btn alt" data-a="new">開始輸入</button></div>`;
 }
 function render(){
@@ -232,7 +233,7 @@ function detail(b){
  <textarea id="n_txt" placeholder="寫下這本書的想法">${esc(ne?.content)}</textarea>
  <div class="acts" style="margin-top:8px">${bt('nsave',ne?'儲存修改':'新增讀後感')}${ne?bt('ncancel','取消','alt'):''}</div>
  <h3>金句（${qs.length}）</h3>
- ${qs.map(q=>`<div class="card"><p class="txt">「${esc(q.content)}」</p><div class="li" style="border:0;padding:0"><span class="pg">${q.page_number?'第 '+esc(q.page_number)+' 頁':'未填頁碼'}</span><span>${lk('qedit','編輯',q.quote_id)}${lk('qdel','刪除',q.quote_id)}</span></div></div>`).join('')}
+ ${qs.map(q=>`<div class="card"><p class="txt">「${esc(q.content)}」</p><div class="li" style="border:0;padding:0"><span class="pg">${q.page_number?'第 '+esc(q.page_number)+' 頁':q.chapter?esc(q.chapter):'未填頁碼'}</span><span>${lk('qedit','編輯',q.quote_id)}${lk('qdel','刪除',q.quote_id)}</span></div></div>`).join('')}
  <textarea id="q_txt" placeholder="輸入金句">${esc(qe?.content)}</textarea>
  <input id="q_pg" placeholder="頁碼（可選）" value="${esc(qe?.page_number)}" style="margin-top:8px">
  <div class="acts" style="margin-top:8px">${bt('qsave',qe?'儲存修改':'新增金句')}${qe?bt('qcancel','取消','alt'):''}</div>
@@ -454,6 +455,105 @@ function applySetup(){
  }catch(e){}
  history.replaceState(null,'',location.pathname);
 }
+let wr=null;
+async function wrCall(body){
+ const {u,k}=cfg();if(!u||!k)throw new Error('請先完成雲端同步設定（首頁的 ☁）');
+ const r=await fetch(u,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({key:k,action:'weread',...body})});
+ const d=await r.json();
+ if(!d.ok)throw new Error(d.error==='unauthorized'?'密碼錯誤，請確認與 Apps Script 的 SECRET 一致':(d.error||'讀取失敗'));
+ return d;
+}
+const wrFind=x=>books.find(b=>b.weread_id===x.id)||books.find(b=>norm(b.title)===norm(x.title));
+const wrMsg=m=>{if(wr)wr.msg=m;const e=$('#wrmsg');if(e)e.textContent=m};
+const wrIso=t=>new Date(t>1e12?t:t*1000).toISOString();
+async function wrOpen(){
+ wr={stage:'load',msg:'讀取微信讀書書架中…'};wrView();
+ try{
+  const d=await wrCall({op:'shelf'});
+  if(!d.books)throw new Error('Apps Script 還不是新版，請更新 Code.gs 並重新部署');
+  const items=[...d.books,...(d.albums||[])].map(x=>({...x,have:!!wrFind(x)})).sort((a,b)=>(b.read||0)-(a.read||0));
+  wr={stage:'list',items,sel:new Set(items.filter(x=>!x.have&&!x.album).map(x=>x.id)),filter:'all',notes:true,auto:localStorage.getItem('ru_wr_auto')!=='0',msg:''};
+ }catch(err){wr={stage:'err',msg:err.message}}
+ wrView();
+}
+function wrView(){
+ if(!wr)return;
+ const p=$('#panel'),st=$('#sheet').classList.contains('open')?p.scrollTop:0;let h='<h2>微信讀書匯入</h2>';
+ if(wr.stage==='load'||wr.stage==='run')h+=`<p class="note" id="wrmsg">${esc(wr.msg)}</p>`;
+ else if(wr.stage==='err')h+=`<p class="note">${esc(wr.msg)}</p><div class="acts"><button class="btn" data-a="wr_open">重試</button><button class="btn alt" data-a="close">關閉</button></div>`;
+ else if(wr.stage==='done')h+=`<p style="white-space:pre-wrap">${esc(wr.msg)}</p><div class="acts"><button class="btn alt" data-a="close">關閉</button></div>`;
+ else{
+  const f=wr.filter,fin=wr.items.filter(x=>x.finish).length,L=wr.items.filter(x=>f==='all'||(f==='read'?x.finish:!x.finish));
+  const sg=(v,l)=>`<button data-a="wr_f" data-v="${v}" class="${f===v?'on':''}">${l}</button>`;
+  h+=`<p class="note" style="margin-top:0">書架共 ${wr.items.length} 本：已讀完 ${fin}、其他 ${wr.items.length-fin}。已讀完匯入為「已讀」，讀到一半與未開始的匯入為「想讀」。已在書單的書，勾選後只會補上新的劃線與想法。</p>
+  <div class="seg">${sg('all','全部')}${sg('read','已讀完')}${sg('other','想讀／未讀完')}</div>
+  <label style="display:flex;gap:10px;align-items:center;color:inherit;font-size:16px;margin:8px 0"><input type="checkbox" id="wr_notes" ${wr.notes?'checked':''} style="width:24px;height:24px;flex:none;padding:0">同時匯入劃線與想法</label>
+  <label style="display:flex;gap:10px;align-items:center;color:inherit;font-size:16px;margin:8px 0"><input type="checkbox" id="wr_auto" ${wr.auto?'checked':''} style="width:24px;height:24px;flex:none;padding:0">之後開啟 App 時自動同步微信讀書（新書、完讀、新的劃線與想法）</label>
+  <div class="acts" style="margin:0 0 6px"><button class="btn alt" data-a="wr_all">全選目前清單</button><button class="btn alt" data-a="wr_none">全部取消</button></div>
+  ${L.map(x=>`<label class="li" style="gap:10px;align-items:flex-start;margin:0;color:inherit;font-size:16px"><input type="checkbox" data-wr="${esc(x.id)}" ${wr.sel.has(x.id)?'checked':''} style="width:24px;height:24px;flex:none;padding:0;margin-top:3px"><span style="flex:1"><b>${esc(x.title)}</b><br><span class="pg">${esc(x.author||'')}${x.author?'・':''}${x.finish?'已讀完':'未讀完'}${x.album?'・有聲書':''}${x.have?'・已在書單':''}</span></span></label>`).join('')}
+  <div class="acts" style="position:sticky;bottom:0;background:var(--bg);padding:10px 0"><button class="btn" id="wrgo" data-a="wr_go">匯入所選（${wr.sel.size}）</button><button class="btn alt" data-a="close">關閉</button></div>`;
+ }
+ openSheet(h);p.scrollTop=st;
+}
+function wrApply(x,d,withN){
+ const now=new Date().toISOString(),fin=!!(x.finish||d.progress>=100),ts=d.finishTime||d.updateTime||x.read||0;
+ let b=wrFind(x);const isNew=!b;
+ const setDone=o=>{const t=ts?new Date(ts*1000):new Date();o.status='read';o.completed_year=t.getFullYear();o.completed_month=t.getMonth()+1};
+ if(isNew){b={book_id:uid(),weread_id:x.id,title:x.title,author:x.author||'',category_id:guessCat((x.category||'')+' '+x.title),description:'',cover_image:x.cover||'',status:'want',
+  reading_format:x.album?'Audiobook':'Ebook',reading_source:'微信讀書',total_reading_seconds:d.readingTime||0,reading_duration_manual:false,created_at:now,updated_at:now,notes:[],quotes:[]};
+  if(fin)setDone(b);books.push(b)}
+ else{b.weread_id=x.id;if(fin&&b.status!=='read'){setDone(b);if(!b.reading_format)b.reading_format=x.album?'Audiobook':'Ebook';if(!b.reading_source)b.reading_source='微信讀書'}
+  if(!b.total_reading_seconds&&d.readingTime)b.total_reading_seconds=d.readingTime;if(!b.cover_image&&x.cover)b.cover_image=x.cover}
+ let nq=0,nn=0;
+ if(withN){b.quotes=b.quotes||[];b.notes=b.notes||[];
+  for(const m of d.marks||[]){const id='wr-'+m.id;if(!m.t||b.quotes.some(q=>q.quote_id===id))continue;b.quotes.push({quote_id:id,book_id:b.book_id,content:m.t,page_number:'',chapter:m.ch||'',created_at:m.time?wrIso(m.time):now});nq++}
+  for(const r of d.reviews||[]){const id='wr-'+r.id,c=(r.a?'「'+r.a+'」\n':'')+(r.c||'');if(!c.trim()||b.notes.some(z=>z.note_id===id))continue;b.notes.push({note_id:id,book_id:b.book_id,content:c,created_at:r.time?wrIso(r.time):now});nn++}}
+ b.wr_read=Math.max(b.wr_read||0,x.read||0);b.updated_at=now;
+ return{b,isNew,nq,nn,approx:fin&&!d.finishTime};
+}
+async function wrGo(){
+ const pick=wr.items.filter(x=>wr.sel.has(x.id));if(!pick.length)return alert('請先勾選要匯入的書');
+ const withN=wr.notes;let add=0,upd=0,q=0,nt=0,ap=0,ex='';const bad=[];
+ wr={...wr,stage:'run',msg:'匯入中 0/'+pick.length+'…'};wrView();
+ for(let i=0;i<pick.length;i+=6){
+  const ch=pick.slice(i,i+6),det={};
+  try{const d=await wrCall({op:'books',ids:ch.map(x=>x.id)});(d.books||[]).forEach(b=>{det[b.id]=b})}catch(err){ch.forEach(x=>bad.push(x.title));wrMsg('匯入中 '+Math.min(i+6,pick.length)+'/'+pick.length+'…');continue}
+  for(const x of ch){const d=det[x.id];if(!d){bad.push(x.title);continue}if(d.err)bad.push(x.title+'（部分資料失敗）');
+   const r=wrApply(x,d,withN);await put('books',r.b);r.isNew?add++:upd++;q+=r.nq;nt+=r.nn;if(r.approx&&r.isNew)ap++;if(!ex&&r.b.total_reading_seconds)ex='例：《'+r.b.title+'》閱讀時長 '+dur(r.b.total_reading_seconds)+'，請對照微信讀書確認。'}
+  wrMsg('匯入中 '+Math.min(i+6,pick.length)+'/'+pick.length+'…');
+ }
+ localStorage.setItem('ru_wr_auto',wr.auto?'1':'0');localStorage.setItem('ru_wr_at',String(Date.now()));
+ localStorage.setItem('ru_wr_seen',JSON.stringify([...new Set([...JSON.parse(localStorage.getItem('ru_wr_seen')||'[]'),...wr.items.map(x=>x.id)])]));
+ await loadBooks();render();queueSync();
+ wr={stage:'done',msg:'完成：新增 '+add+' 本、更新 '+upd+' 本；匯入劃線 '+q+' 句、想法 '+nt+' 則。'+(ap?'\n其中 '+ap+' 本沒有完讀日期，暫以最後閱讀時間代替。':'')+(ex?'\n'+ex:'')+(bad.length?'\n有 '+bad.length+' 筆讀取失敗：'+bad.slice(0,5).join('、')+(bad.length>5?'…':'')+'（可再匯入一次）':'')};
+ wrView();
+}
+let wrAutoBusy=false,wrSt='';
+const wrLabel=()=>localStorage.getItem('ru_wr_auto')==='1'?'📖 '+(wrSt||'微信讀書：自動同步已開啟'):'';
+function setWrl(m){wrSt=m;const e=$('#wrl');if(e)e.textContent=wrLabel();const g=$('#wrstat');if(g)g.textContent=m}
+async function wrAuto(force){
+ if(wrAutoBusy||(wr&&wr.stage==='run'))return;
+ if(!force&&localStorage.getItem('ru_wr_auto')!=='1')return;
+ const {u,k}=cfg();if(!u||!k){if(force)setWrl('請先完成雲端同步設定（首頁的 ☁）');return}
+ if(!force&&Date.now()-(+localStorage.getItem('ru_wr_at')||0)<3*3600e3)return;
+ wrAutoBusy=true;setWrl('微信讀書同步中…');
+ try{
+  const d=await wrCall({op:'shelf'});if(!d.books)throw new Error('Apps Script 需要更新');
+  const seen=new Set(JSON.parse(localStorage.getItem('ru_wr_seen')||'[]')),todo=[];
+  for(const x of d.books){const b=wrFind(x);if(!b){if(!seen.has(x.id))todo.push(x)}else if((x.read||0)>(b.wr_read||0)||(x.finish&&b.status!=='read'))todo.push(x)}
+  const run=todo.slice(0,24);let add=0,upd=0,q=0,nt=0;
+  for(let i=0;i<run.length;i+=6){
+   const ch=run.slice(i,i+6),det={};
+   const r=await wrCall({op:'books',ids:ch.map(x=>x.id)});(r.books||[]).forEach(b=>{det[b.id]=b});
+   for(const x of ch){const dd=det[x.id];if(!dd||(dd.err&&!dd.marks&&!dd.reviews))continue;
+    const a=wrApply(x,dd,true);await put('books',a.b);a.isNew?(add++,seen.add(x.id)):upd++;q+=a.nq;nt+=a.nn}}
+  localStorage.setItem('ru_wr_seen',JSON.stringify([...seen]));localStorage.setItem('ru_wr_at',String(Date.now()));
+  const n=new Date(),hm=String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0');
+  if(add||upd){await loadBooks();render();queueSync()}
+  setWrl('微信讀書 '+hm+' 已同步'+(add||upd?'（新增 '+add+' 本、更新 '+upd+' 本、劃線 '+q+' 句、想法 '+nt+' 則）':'，沒有新資料')+(todo.length>run.length?'；還有 '+(todo.length-run.length)+' 本稍後繼續':''));
+ }catch(err){setWrl('微信讀書同步失敗：'+err.message)}
+ wrAutoBusy=false;
+}
 document.addEventListener('click',async e=>{
  if(e.target.id==='sheet')return closeSheet();
  const t=e.target.closest('[data-a]');if(!t)return;
@@ -483,6 +583,12 @@ document.addEventListener('click',async e=>{
  else if(a==='qdel'&&b){if(confirm('刪除這句金句？'))upd(b,x=>{x.quotes=x.quotes.filter(z=>z.quote_id!==t.dataset.x)})}
  else if(a==='month')monthSheet(+t.dataset.m);
  else if(a==='sv'){sv=t.dataset.v;render()}
+ else if(a==='wr_open')wrOpen();
+ else if(a==='wr_sync')wrAuto(true);
+ else if(a==='wr_f'){wr.filter=t.dataset.v;wrView()}
+ else if(a==='wr_all'){wr.items.filter(x=>wr.filter==='all'||(wr.filter==='read'?x.finish:!x.finish)).forEach(x=>wr.sel.add(x.id));wrView()}
+ else if(a==='wr_none'){wr.sel.clear();wrView()}
+ else if(a==='wr_go')wrGo();
  else if(a==='cam')$('#f_cam').click();
  else if(a==='pic')$('#f_pic').click();
  else if(a==='o_clear'){ocr=null;ocrImg=null;render()}
@@ -547,6 +653,9 @@ document.addEventListener('click',async e=>{
 document.addEventListener('input',e=>{if(e.target.id==='q'){q=e.target.value;$('#list').innerHTML=listHTML()}else if(e.target.id==='sq')sq=e.target.value;else if(e.target.id==='o_txt'&&ocr)ocr.text=e.target.value});
 document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.id==='sq'){e.preventDefault();e.target.blur();doSearch()}});
 document.addEventListener('change',e=>{const i=e.target.id;
+ if(e.target.dataset&&e.target.dataset.wr!==undefined&&wr){const id=e.target.dataset.wr;e.target.checked?wr.sel.add(id):wr.sel.delete(id);const g=$('#wrgo');if(g)g.textContent='匯入所選（'+wr.sel.size+'）';return}
+ if(i==='wr_notes'&&wr){wr.notes=e.target.checked;return}
+ if(i==='wr_auto'&&wr){wr.auto=e.target.checked;localStorage.setItem('ru_wr_auto',wr.auto?'1':'0');if(wr.auto&&!localStorage.getItem('ru_wr_seen')){localStorage.setItem('ru_wr_seen',JSON.stringify(wr.items.map(x=>x.id)));localStorage.setItem('ru_wr_at',String(Date.now()))}return}
  if(i==='catF'){catF=e.target.value;$('#list').innerHTML=listHTML()}
  else if(i==='yF'){yF=e.target.value;$('#list').innerHTML=listHTML()}
  else if(i==='sy'){sy=+e.target.value;render()}
@@ -561,9 +670,9 @@ setInterval(()=>{const el=$('#tm');if(!el)return;const b=books.find(x=>x.book_id
   if(!cats.length){cats=DEF.map((name,i)=>({category_id:'c'+(i+1),name}));for(const c of cats)await put('categories',c)}
   await loadBooks();navigator.storage?.persist?.();
  }catch(err){$('#app').innerHTML='<p class="empty">無法使用瀏覽器儲存空間。請確認不是無痕模式，並用 Safari 開啟。</p>';return}
- render();sync();checkUpdate();
+ render();Promise.resolve(sync()).then(()=>wrAuto());checkUpdate();
 })();
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){sync();checkUpdate()}});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){Promise.resolve(sync()).then(()=>wrAuto());checkUpdate()}});
 </script>
 </body>
 </html>
