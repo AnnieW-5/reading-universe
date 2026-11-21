@@ -87,7 +87,7 @@ button.bar{width:100%;background:none;border:0;padding:3px 0;text-align:left}
 </nav>
 <div id="sheet"><div id="panel"></div></div>
 <script>
-const APP_VERSION='2026-11-20-1';
+const APP_VERSION='2026-11-20-2';
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid=()=>crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2);
@@ -194,6 +194,7 @@ function addPage(){
  ${pendingQ?`<div class="card"><p class="note" style="margin-top:0">待加入的金句：${esc(pendingQ.content.slice(0,60))}…<br>請搜尋或手動新增這本書，儲存後會自動加入。</p><button class="btn alt" data-a="pq_cancel">取消</button></div>`:''}
  <div class="card"><h2>搜尋書籍</h2><div class="two" style="grid-template-columns:1fr auto"><input id="sq" placeholder="書名、作者或 ISBN" value="${esc(sq)}" enterkeyhint="search" autocapitalize="off"><button class="btn" data-a="search">搜尋</button></div><p class="note" id="smsg">${esc(smsg)}</p><div id="sres">${srHTML()}</div></div>
  <div class="card"><h2>拍照・相簿</h2><p class="note" style="margin-top:0">拍書封、書介頁或金句截圖。文字辨識在你的手機上進行，圖片不會上傳。第一次使用會下載辨識元件與中文語言檔，建議用 Wi-Fi。</p>
+ <p class="note" style="margin:0 0 4px">圖片裡的文字是：</p><div class="seg" style="margin-top:0"><button data-a="olang" data-v="chi_tra" class="${ocrLang==='chi_tra'?'on':''}">繁體</button><button data-a="olang" data-v="chi_sim" class="${ocrLang==='chi_sim'?'on':''}">簡體</button></div><p class="note" style="margin:0 0 4px">這是：</p><div class="seg" style="margin-top:0"><button data-a="omode" data-v="book" class="${ocrMode==='book'?'on':''}">書名／書單</button><button data-a="omode" data-v="quote" class="${ocrMode==='quote'?'on':''}">金句</button></div>
  <div class="acts" style="margin-top:0"><button class="btn" data-a="cam">拍照</button><button class="btn alt" data-a="pic">從相簿選擇</button></div>
  <input type="file" id="f_cam" accept="image/*" capture="environment" hidden><input type="file" id="f_pic" accept="image/*" hidden>
  ${ocrHTML()}</div>
@@ -203,6 +204,7 @@ function render(){
  $('#app').innerHTML={home,books:booksPage,sum:sumPage,add:addPage}[tab]();
  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===tab));
  if(tab==='sum'&&sv==='car')bindCar();
+ if(tab==='add'&&ocr&&ocr.stage==='crop')bindCrop();
 }
 const openSheet=h=>{$('#panel').innerHTML=h;$('#sheet').classList.add('open');$('#panel').scrollTop=0};
 const closeSheet=()=>{$('#sheet').classList.remove('open');editing=null;nEdit=qEdit=null};
@@ -311,7 +313,7 @@ function settings(){
  <div class="acts"><button class="btn" data-a="ssave">儲存並同步</button><button class="btn alt" data-a="snow">立即同步</button><button class="btn bad" data-a="soff">中斷連線</button><button class="btn alt" data-a="close">關閉</button></div>`);
 }
 let sr=[],sq='',smsg='',sbusy=false;
-const CATMAP=[[/histor|歷史|史/i,'歷史'],[/fiction|literar|novel|poetry|drama|小說|文學|詩/i,'小說／文學'],[/psycholog|self-help|self help|心理|自我成長|勵志/i,'心理／自我成長'],[/philosoph|religio|哲學|思想|宗教/i,'哲學／思想'],[/business|econom|financ|management|商業|經濟|管理|理財/i,'商業／經濟'],[/politic|social|\blaw\b|sociolog|社會|政治|法律/i,'社會／政治'],[/biograph|memoir|傳記|人物/i,'傳記／人物'],[/\barts?\b|design|music|cultur|photograph|藝術|文化|設計|音樂/i,'藝術／文化'],[/scien|technolog|comput|math|medical|nature|科學|科技|電腦|數學/i,'科學／科技']];
+const CATMAP=[[/histor|歷史|历史|史/i,'歷史'],[/fiction|literar|novel|poetry|drama|小說|小说|文學|文学|詩|诗/i,'小說／文學'],[/psycholog|self-help|self help|心理|自我成長|自我成长|勵志|励志/i,'心理／自我成長'],[/philosoph|religio|哲學|哲学|思想|宗教/i,'哲學／思想'],[/business|econom|financ|management|商業|商业|經濟|经济|管理|理財|理财/i,'商業／經濟'],[/politic|social|\blaw\b|sociolog|社會|社会|政治|法律/i,'社會／政治'],[/biograph|memoir|傳記|传记|人物/i,'傳記／人物'],[/\barts?\b|design|music|cultur|photograph|藝術|艺术|文化|設計|设计|音樂|音乐/i,'藝術／文化'],[/scien|technolog|comput|math|medical|nature|科學|科学|科技|電腦|电脑|數學|数学/i,'科學／科技']];
 const guessCat=t=>{const n=(CATMAP.find(([r])=>r.test(t))||[0,'其他'])[1];return (cats.find(c=>c.name===n)||cats[cats.length-1])?.category_id};
 const htmlText=h=>{try{return new DOMParser().parseFromString(h,'text/html').body.textContent.trim()}catch(e){return h}};
 const norm=t=>String(t||'').toLowerCase().replace(/[\s\-—:：、,，.。()（）]/g,'');
@@ -340,22 +342,24 @@ async function doSearch(){
  smsg=out.length?(g.status==='rejected'?'Google Books 暫時無法使用（免費額度可能已滿），目前只顯示 Open Library 的結果。':'請點選正確的書，確認後再儲存。'):(g.status==='rejected'&&o.status==='rejected'?'搜尋失敗，請確認網路，或改用手動輸入。':'找不到資料，可改用手動輸入。');
  sbusy=false;paintSR();
 }
-let ocr=null,ocrW=null,ocrLines=[],pendingQ=null,inbox=[];
+let ocr=null,ocrW=null,ocrLines=[],pendingQ=null,inbox=[],ocrLang=localStorage.getItem('ru_lang')||'chi_tra',ocrMode='book',ocrImg=null,ocrRect=null;
 const loadTess=()=>window.Tesseract?Promise.resolve():new Promise((ok,no)=>{const x=document.createElement('script');x.src='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';x.onload=ok;x.onerror=()=>no(new Error('無法載入辨識元件，請確認網路'));document.head.appendChild(x)});
 function setOcrMsg(m){if(ocr)ocr.msg=m;const e=$('#ocrmsg');if(e)e.textContent=m}
 async function getWorker(){
- if(ocrW)return ocrW;
+ if(ocrW&&ocrW.__lang===ocrLang)return ocrW;
+ if(ocrW){try{await ocrW.terminate()}catch(e){}ocrW=null}
  await loadTess();
- ocrW=await Tesseract.createWorker('chi_tra+eng',1,{logger:m=>{if(!m.status)return;const p=Math.round((m.progress||0)*100),l=/load|initializ/i.test(m.status);setOcrMsg((l?'載入辨識檔（第一次較久）':'辨識中')+' '+p+'%')}});
- return ocrW;
+ const w=await Tesseract.createWorker(ocrLang+'+eng',1,{logger:m=>{if(!m.status)return;const p=Math.round((m.progress||0)*100),l=/load|initializ/i.test(m.status);setOcrMsg((l?'載入辨識檔（第一次較久）':'辨識中')+' '+p+'%')}});
+ w.__lang=ocrLang;ocrW=w;return w;
 }
 async function shrink(f){
  const u=URL.createObjectURL(f);
  const im=await new Promise((ok,no)=>{const i=new Image();i.onload=()=>ok(i);i.onerror=()=>no(new Error('無法讀取這張圖片'));i.src=u});
- const k=Math.min(1,1800/Math.max(im.naturalWidth,im.naturalHeight)),c=document.createElement('canvas');
+ const k=Math.min(1,2000/Math.max(im.naturalWidth,im.naturalHeight)),c=document.createElement('canvas');
  c.width=Math.round(im.naturalWidth*k);c.height=Math.round(im.naturalHeight*k);
  c.getContext('2d').drawImage(im,0,0,c.width,c.height);
- return{blob:await new Promise(r=>c.toBlob(r,'image/jpeg',.9)),url:u};
+ URL.revokeObjectURL(u);
+ return{canvas:c,url:c.toDataURL('image/jpeg',.85)};
 }
 const cleanOcr=t=>t.split('\n').map(l=>l.replace(/([\u3400-\u9fff，。！？：；、「」『』（）])[ \t]+(?=[\u3400-\u9fff，。！？：；、「」『』（）])/g,'$1').trim()).filter(Boolean).join('\n');
 function ocrLinesOf(d){
@@ -371,22 +375,60 @@ function guessTitle(L){
  gs.sort((a,b)=>Math.max(...b.map(x=>x.h))-Math.max(...a.map(x=>x.h)));
  return cleanOcr(gs[0].map(l=>l.t).join(' '));
 }
+function extractTitles(tx){
+ const out=[],re=/《([^《》]{1,60})》/g;let m;
+ while((m=re.exec(tx))){const t=m[1].replace(/\s+/g,'');if(t.length<2)continue;
+  const a=tx.slice(re.lastIndex).match(/^\s*[—–−－\-]\s*([^\n]{2,30})/);out.push({t,a:a?a[1].trim():''})}
+ return out;
+}
 async function onImage(f){
  if(!f)return;
  ocr={busy:true,msg:'準備圖片…',url:'',text:''};tab='add';render();
- try{
-  const r=await shrink(f);ocr.url=r.url;render();setOcrMsg('準備辨識…');
-  const w=await getWorker(),res=await w.recognize(r.blob);
-  const tx=cleanOcr(res.data.text||'');ocr={url:r.url,text:tx,orig:tx,lines:ocrLinesOf(res.data),busy:false,msg:''};
-  if(!ocr.text)ocr.msg='沒有辨識到文字。可重拍、換一張圖，或在下方直接輸入文字。';
- }catch(err){ocr={url:ocr?.url||'',text:'',busy:false,msg:'辨識失敗：'+err.message+'。你仍可在下方手動輸入文字，或改用手動新增。'}}
+ try{const r=await shrink(f);ocrImg=r.canvas;ocrRect=null;ocr={stage:'crop',url:r.url,msg:''}}
+ catch(err){ocr={msg:'無法讀取這張圖片：'+err.message}}
  render();
+}
+function bindCrop(){
+ const b=$('#cropbox'),r=$('#croprect');if(!b)return;let sx=0,sy=0,on=false;
+ const pos=e=>{const q=b.getBoundingClientRect();return[Math.max(0,Math.min(q.width,e.clientX-q.left)),Math.max(0,Math.min(q.height,e.clientY-q.top))]};
+ b.addEventListener('pointerdown',e=>{on=true;[sx,sy]=pos(e);if(b.setPointerCapture)try{b.setPointerCapture(e.pointerId)}catch(x){}});
+ b.addEventListener('pointermove',e=>{if(!on)return;const[x,y]=pos(e),l=Math.min(sx,x),t=Math.min(sy,y),w=Math.abs(x-sx),h=Math.abs(y-sy);
+  Object.assign(r.style,{display:'block',left:l+'px',top:t+'px',width:w+'px',height:h+'px'});ocrRect={l,t,w,h,W:b.clientWidth,H:b.clientHeight}});
+ const up=()=>{on=false;if(ocrRect&&(ocrRect.w<20||ocrRect.h<20)){ocrRect=null;r.style.display='none'}};
+ b.addEventListener('pointerup',up);b.addEventListener('pointercancel',up);
+}
+async function runOcr(useRect){
+ const src=ocrImg,rc=useRect&&ocrRect&&ocrRect.w>=20?ocrRect:null,keep=ocr.url;
+ if(!src)return;
+ let cv=src;
+ if(rc){const k=src.width/rc.W,sw=rc.w*k,sh=rc.h*k,up=Math.max(1,Math.min(3,1000/sw));
+  cv=document.createElement('canvas');cv.width=Math.round(sw*up);cv.height=Math.round(sh*up);
+  cv.getContext('2d').drawImage(src,rc.l*k,rc.t*k,sw,sh,0,0,cv.width,cv.height)}
+ ocr={busy:true,msg:'準備辨識…',url:keep,text:''};render();
+ try{
+  const w=await getWorker();
+  await w.setParameters({tessedit_pageseg_mode:ocrMode==='quote'?'3':'11'});
+  const blob=await new Promise(r=>cv.toBlob(r,'image/jpeg',.92)),res=await w.recognize(blob),tx=cleanOcr(res.data.text||'');
+  ocr={url:keep,text:tx,orig:tx,lines:ocrLinesOf(res.data),titles:ocrMode==='book'?extractTitles(tx):[],busy:false,msg:''};
+  if(!tx)ocr.msg='沒有辨識到文字。可以框選範圍重試、切換繁體／簡體，或在下方直接輸入文字。';
+ }catch(err){ocr={url:keep,text:'',busy:false,msg:'辨識失敗：'+err.message+'。你仍可在下方手動輸入文字，或改用手動新增。'}}
+ render();
+}
+async function findBook(q){
+ const gk=localStorage.getItem('ru_gkey')||'',mq=q.split(/[：:]/)[0].trim(),b=norm(mq);
+ try{const d=await fj('https://www.googleapis.com/books/v1/volumes?maxResults=6&printType=books&q='+encodeURIComponent('intitle:'+mq)+(gk?'&key='+encodeURIComponent(gk):''));
+  for(const it of d.items||[]){const v=it.volumeInfo||{};if(!v.title)continue;const a=norm(v.title);
+   if(a.length>=2&&(a.includes(b)||b.includes(a)))return{title:v.title+(v.subtitle?'：'+v.subtitle:''),author:(v.authors||[]).join('、'),desc:htmlText(v.description||''),cover:((v.imageLinks||{}).thumbnail||'').replace(/^http:/,'https:').replace('&edge=curl',''),cat:guessCat((v.categories||[]).join(' ')+' '+v.title)}}}catch(e){}
+ return null;
 }
 function ocrHTML(){
  if(!ocr)return '';
- return `${ocr.url?`<img src="${ocr.url}" alt="" style="max-width:100%;max-height:220px;border-radius:8px;margin:10px 0 0">`:''}
+ if(ocr.stage==='crop')return `<p class="note">用手指在圖上拖曳，框出要辨識的範圍（例如只框書名）。不框就辨識整張。</p><div id="cropbox" style="position:relative;touch-action:none;display:inline-block;max-width:100%"><img src="${ocr.url}" alt="" style="max-width:100%;display:block;border-radius:8px;pointer-events:none"><div id="croprect" style="position:absolute;border:2px solid #1f5f5b;background:rgba(31,95,91,.2);display:none;pointer-events:none"></div></div><div class="acts"><button class="btn" data-a="o_run">辨識框選範圍</button><button class="btn alt" data-a="o_full">辨識整張</button><button class="btn alt" data-a="o_clear">取消</button></div>`;
+ const T=ocr.titles||[];
+ return `${ocr.url&&!ocr.busy?'':ocr.url?`<img src="${ocr.url}" alt="" style="max-width:100%;max-height:200px;border-radius:8px;margin:10px 0 0">`:''}
  ${ocr.busy?`<p class="note" id="ocrmsg">${esc(ocr.msg)}</p>`:`${ocr.msg?`<p class="note">${esc(ocr.msg)}</p>`:''}
- ${ocr.url?`<label>辨識結果（可修改）</label><textarea id="o_txt" style="min-height:120px">${esc(ocr.text)}</textarea><p class="note">這張圖是什麼？</p><div class="acts" style="margin-top:0"><button class="btn" data-a="o_book">書封／書介：找這本書</button><button class="btn alt" data-a="o_quote">金句：儲存</button><button class="btn alt" data-a="o_clear">取消</button></div><div id="ochips">${ocr.step||''}</div>`:`<button class="btn alt" data-a="o_clear">關閉</button>`}`}`;
+ ${ocr.url?`${T.length?`<h3 style="margin-top:14px">找到 ${T.length} 本書名</h3><p class="note" style="margin-top:0">可修改文字，取消勾選的不會加入。</p>${T.map((x,i)=>`<div class="li" style="gap:8px;border:0"><input type="checkbox" id="tb_${i}" checked style="width:24px;height:24px;flex:none;padding:0"><input id="tt_${i}" value="${esc(x.t)}"></div>${x.a?`<p class="pg" style="margin:0 0 6px 32px">作者：${esc(x.a)}</p>`:''}`).join('')}<div class="acts"><button class="btn" data-a="o_batch">搜尋並加入想讀清單</button></div>`:''}
+ <label>辨識結果（可修改）</label><textarea id="o_txt" style="min-height:120px">${esc(ocr.text)}</textarea><p class="note">這張圖是什麼？</p><div class="acts" style="margin-top:0"><button class="btn" data-a="o_book">書封：找這本書</button><button class="btn alt" data-a="o_quote">金句：儲存</button><button class="btn alt" data-a="o_clear">關閉</button></div><div id="ochips">${ocr.step||''}</div>`:`<button class="btn alt" data-a="o_clear">關閉</button>`}`}`;
 }
 const bookOpts=()=>'<option value="">選擇書籍…</option>'+[...books].sort((a,b)=>a.title.localeCompare(b.title,'zh-Hant')).map(b=>`<option value="${b.book_id}">${esc(b.title)}</option>`).join('');
 const qtext=()=>($('#o_txt')?.value||'').trim().replace(/([\u3400-\u9fff，。！？」』）])\n(?=[\u3400-\u9fff「『（])/g,'$1');
@@ -443,7 +485,22 @@ document.addEventListener('click',async e=>{
  else if(a==='sv'){sv=t.dataset.v;render()}
  else if(a==='cam')$('#f_cam').click();
  else if(a==='pic')$('#f_pic').click();
- else if(a==='o_clear'){ocr=null;render()}
+ else if(a==='o_clear'){ocr=null;ocrImg=null;render()}
+ else if(a==='olang'){ocrLang=t.dataset.v;localStorage.setItem('ru_lang',ocrLang);render()}
+ else if(a==='omode'){ocrMode=t.dataset.v;render()}
+ else if(a==='o_run')runOcr(true);
+ else if(a==='o_full')runOcr(false);
+ else if(a==='o_batch'){
+  const it=(ocr.titles||[]).map((x,i)=>({t:($('#tt_'+i)?.value||'').trim(),a:x.a,on:$('#tb_'+i)?.checked})).filter(x=>x.on&&x.t);
+  if(!it.length)return alert('沒有選取的書名');
+  let n=0,cv=0,dup=0;const sm=$('#smsg');
+  for(let i=0;i<it.length;i++){const x=it[i];if(sm)sm.textContent='搜尋並加入中 '+(i+1)+'/'+it.length+'…';
+   const m=await findBook(x.t),title=m?m.title:x.t;
+   if(books.some(b=>norm(b.title)===norm(title))){dup++;continue}
+   const ts=new Date().toISOString();
+   await put('books',{book_id:uid(),title,author:m?m.author:x.a,category_id:m?m.cat:guessCat(x.t),description:m?m.desc:'',cover_image:m?m.cover:'',status:'want',created_at:ts,updated_at:ts});
+   await loadBooks();n++;if(m&&m.cover)cv++}
+  ocr={msg:'已加入 '+n+' 本到「想讀」，其中 '+cv+' 本找到封面與資料'+(dup?'；'+dup+' 本已在書單，略過':'')+'。'};render();queueSync()}
  else if(a==='o_book'){
   const fresh=ocr.lines&&ocr.lines.length&&ocr.text===ocr.orig;
   const g=fresh?guessTitle(ocr.lines):'';
@@ -451,7 +508,9 @@ document.addEventListener('click',async e=>{
   ocrLines=[g,...rest.filter(x=>x!==g)].filter(Boolean).slice(0,12);
   ocr.step=ocrLines.length?'<p class="note">'+(g?'已依字體大小推測書名並自動搜尋。如果不對，點下面其他行重新搜尋（字體大的排前面）：':'點書名那一行來搜尋（也可以先修改上方文字）：')+'</p>'+ocrLines.map((l,i)=>`<button class="row" data-a="o_pick" data-i="${i}">${i===0&&g?'推測書名：':''}${esc(l)}</button>`).join(''):'<p class="note">沒有可用的文字，請在上方輸入書名後再試。</p>';
   if(g)sq=g;render();
-  if(g){const el=$('#sq');if(el)el.scrollIntoView({block:'center'});doSearch()}}
+  const cands=[g,...ocrLines].filter((x,i,a)=>x&&a.indexOf(x)===i).slice(0,4);
+  if(cands.length){const el=$('#sq');if(el)el.scrollIntoView({block:'center'});
+   for(const c of cands){sq=c;const e2=$('#sq');if(e2)e2.value=c;await doSearch();if(sr.length)break}}}
  else if(a==='o_pick'){sq=ocrLines[+t.dataset.i]||'';render();const el=$('#sq');if(el)el.scrollIntoView({block:'center'});doSearch()}
  else if(a==='o_quote'){ocr.step='<label>頁碼（可選）</label><input id="o_pg" placeholder="例如 123"><label>加入哪一本書？</label><select id="o_sel">'+bookOpts()+'</select><div class="acts" style="margin-top:10px"><button class="btn" data-a="oq_add">加到這本書</button><button class="btn alt" data-a="oq_new">建立新書後加入</button><button class="btn alt" data-a="oq_inbox">暫時保存，稍後歸檔</button></div>';render()}
  else if(a==='oq_add'){const v=qtext(),id=$('#o_sel').value;if(!v)return alert('沒有可儲存的文字');if(!id)return alert('請先選擇書籍');const b2=books.find(x=>x.book_id===id);if(!b2)return;
