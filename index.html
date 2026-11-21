@@ -62,6 +62,19 @@ label{display:block;margin:14px 0 4px;font-size:14px;color:var(--mute)}
  .res{display:flex;gap:12px;align-items:center;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:none;padding:10px 2px}
 .res img,.res i{width:44px;height:66px;object-fit:cover;border-radius:2px;flex:none;background:#cfd6d0}
 .res span{font-size:14px;color:var(--mute)}.res b{font-size:16px;color:var(--ink)}
+.grid.wall{grid-template-columns:repeat(4,1fr);gap:12px 10px}
+button.bar{width:100%;background:none;border:0;padding:3px 0;text-align:left}
+.bar em.k{width:96px;flex:none}
+.car{height:290px;perspective:900px;overflow:hidden;touch-action:pan-y;user-select:none;-webkit-user-select:none;margin:6px 0}
+.ring{position:relative;width:110px;height:165px;margin:48px auto 0;transform-style:preserve-3d;transition:transform .55s cubic-bezier(.2,.8,.2,1)}
+.ring.drag{transition:none}
+.it{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden}
+.shelf3d{perspective:700px;margin:12px 0 22px}
+.bks{display:flex;align-items:flex-end;justify-content:center;gap:3px;transform:rotateX(6deg);transform-origin:bottom;transform-style:preserve-3d}
+.spine{width:44px;border:0;border-radius:2px;color:#fff;padding:8px 0;box-shadow:inset 2px 0 0 rgba(255,255,255,.18),2px 0 5px rgba(0,0,0,.3);transition:transform .25s}
+.spine:active{transform:translateZ(28px) rotateY(-20deg)}
+.spine span{display:block;writing-mode:vertical-rl;max-height:100%;overflow:hidden;font:700 13px "Songti TC",serif;margin:auto}
+.board{height:14px;background:linear-gradient(#8a6a4a,#5d4630);border-radius:2px;box-shadow:0 7px 9px rgba(0,0,0,.28)}
 </style>
 </head>
 <body>
@@ -74,7 +87,7 @@ label{display:block;margin:14px 0 4px;font-size:14px;color:var(--mute)}
 </nav>
 <div id="sheet"><div id="panel"></div></div>
 <script>
-const APP_VERSION='2026-11-19-2';
+const APP_VERSION='2026-11-20-1';
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid=()=>crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2);
@@ -131,16 +144,50 @@ function booksPage(){
  <button class="btn alt" data-a="view" style="flex:none">${view==='grid'?'清單':'封面'}</button></div>
  <div id="list">${listHTML()}</div>`;
 }
+let sv='wall',car={a:0,n:1,st:360};
+const ybs=()=>reads().filter(b=>b.completed_year===sy).sort((a,b)=>(a.completed_month||0)-(b.completed_month||0));
+const tally=(arr,f)=>{const m=new Map();for(const b of arr){const k=f(b)||'未填';m.set(k,(m.get(k)||0)+1)}return [...m].sort((a,b)=>b[1]-a[1])};
+const barCard=(t,rows)=>`<div class="card"><h2>${t}</h2>${rows.length?rows.map(([k,n])=>`<div class="bar"><em class="k">${esc(k)}</em><i style="width:${n/rows[0][1]*45}%"></i><span>${n} 本</span></div>`).join(''):'<p class="note">沒有資料</p>'}</div>`;
+function carHTML(a){
+ const n=a.length,st=360/n,R=Math.min(380,Math.max(120,55/Math.tan(Math.PI/Math.max(n,3))+16));car.n=n;car.st=st;
+ return `<div class="car" id="car"><div class="ring" id="ring">${a.map((b,i)=>`<div class="it" data-id="${b.book_id}" style="transform:rotateY(${i*st}deg) translateZ(${R}px)">${coverEl(b)}</div>`).join('')}</div></div><p class="note" id="carlab" style="text-align:center;margin-top:0"></p><p class="note" style="text-align:center">左右拖曳旋轉，點封面查看書籍</p>`;
+}
+function carSet(){
+ const r=$('#ring');if(!r)return;r.style.transform='rotateY('+car.a+'deg)';
+ const i=((Math.round(-car.a/car.st)%car.n)+car.n)%car.n,b=ybs()[i],l=$('#carlab');if(l&&b)l.textContent=b.title+(b.author?'・'+b.author:'');
+}
+function bindCar(){
+ const c=$('#car'),r=$('#ring');if(!c)return;car.a=0;carSet();
+ let x0=0,a0=0,drag=false,down=false,lx=0,lt=0,v=0;
+ c.addEventListener('pointerdown',e=>{down=true;drag=false;x0=lx=e.clientX;a0=car.a;lt=e.timeStamp;v=0});
+ c.addEventListener('pointermove',e=>{if(!down)return;const dx=e.clientX-x0;
+  if(!drag&&Math.abs(dx)>6){drag=true;r.classList.add('drag');if(c.setPointerCapture)try{c.setPointerCapture(e.pointerId)}catch(x){}}
+  if(drag){car.a=a0+dx*.5;const dt=e.timeStamp-lt;if(dt>0)v=(e.clientX-lx)/dt;lx=e.clientX;lt=e.timeStamp;carSet()}});
+ const end=e=>{if(!down)return;down=false;
+  if(drag){r.classList.remove('drag');const k=Math.max(-150,Math.min(150,v*30));car.a=Math.round((car.a+k)/car.st)*car.st;carSet()}
+  else{const it=e.target.closest&&e.target.closest('.it'),b=it&&books.find(x=>x.book_id===it.dataset.id);if(b){nEdit=qEdit=null;detail(b)}}};
+ c.addEventListener('pointerup',end);c.addEventListener('pointercancel',end);
+}
+function shelfHTML(a){
+ const per=7,rows=[];for(let i=0;i<a.length;i+=per)rows.push(a.slice(i,i+per));
+ return rows.map(r=>`<div class="shelf3d"><div class="bks">${r.map(b=>{const h=hue(b.title);return `<button class="spine" data-a="book" data-id="${b.book_id}" style="height:${128+(h%5)*8}px;background:linear-gradient(90deg,hsl(${h} 38% 26%),hsl(${h} 38% 40%),hsl(${h} 38% 26%))"><span>${esc(b.title)}</span></button>`}).join('')}</div><div class="board"></div></div>`).join('');
+}
+function monthSheet(m){
+ const x=ybs().filter(b=>b.completed_month===m),secs=x.reduce((t,b)=>t+(b.total_reading_seconds||0),0);
+ openSheet(`<h2>${sy} 年 ${m} 月</h2><p class="note" style="margin-top:0">讀完 ${x.length} 本・${dur(secs)}</p><div class="grid">${x.map(cover).join('')}</div><div class="acts"><button class="btn alt" data-a="close">關閉</button></div>`);
+}
 function sumPage(){
- const ys=[...new Set([NOW,...reads().map(b=>b.completed_year)])].sort((a,b)=>b-a);
- const yb=reads().filter(b=>b.completed_year===sy),secs=yb.reduce((a,b)=>a+(b.total_reading_seconds||0),0);
- const m=Array.from({length:12},(_,i)=>{const x=yb.filter(b=>b.completed_month===i+1);return{n:x.length,s:x.reduce((a,b)=>a+(b.total_reading_seconds||0),0)}});
+ const ys=[...new Set([NOW,...reads().map(b=>b.completed_year)])].sort((a,b)=>b-a),yb=ybs(),secs=yb.reduce((t,b)=>t+(b.total_reading_seconds||0),0);
+ const m=Array.from({length:12},(_,i)=>{const x=yb.filter(b=>b.completed_month===i+1);return{n:x.length,s:x.reduce((t,b)=>t+(b.total_reading_seconds||0),0)}});
  const mx=Math.max(1,...m.map(x=>x.n));
+ const show=sv==='car'?carHTML(yb):sv==='shelf'?shelfHTML(yb):`<div class="grid wall">${yb.map(cover).join('')}</div>`;
+ const sg=(v,l)=>`<button data-a="sv" data-v="${v}" class="${sv===v?'on':''}">${l}</button>`;
  return `<h1>閱讀統計</h1><select id="sy">${ys.map(y=>`<option${y===sy?' selected':''}>${y}</option>`).join('')}</select>
  <div class="stats"><div class="stat"><b>${yb.length}</b><span>已讀完（本）</span></div><div class="stat"><b style="font-size:22px;line-height:40px">${dur(secs)}</b><span>總閱讀時長</span></div></div>
- <div class="card"><h2>每月完讀</h2>${m.map((x,i)=>`<div class="bar"><em>${i+1} 月</em><i style="width:${x.n/mx*60}%"></i><span>${x.n} 本${x.s?'・'+dur(x.s):''}</span></div>`).join('')}</div>
- ${yb.length?`<h3>${sy} 年讀完的書</h3><div class="grid">${yb.map(cover).join('')}</div>`:'<p class="empty">這一年還沒有讀完的書。</p>'}
- <p class="note">封面牆、圓形輪播與書架展示將在 Phase 5 加入。</p>`;
+ <h3>${sy} 年讀完的書</h3>
+ ${yb.length?`<div class="seg">${sg('wall','封面牆')}${sg('car','輪播')}${sg('shelf','書架')}</div>${show}`:'<p class="empty">這一年還沒有讀完的書。</p>'}
+ <div class="card"><h2>每月完讀</h2>${m.map((x,i)=>{const row=`<em>${i+1} 月</em><i style="width:${x.n/mx*50}%"></i><span>${x.n} 本${x.s?'・'+dur(x.s):''}</span>`;return x.n?`<button class="bar" data-a="month" data-m="${i+1}">${row}</button>`:`<div class="bar">${row}</div>`}).join('')}<p class="note" style="margin-bottom:0">點有書的月份，可查看當月讀完的封面。</p></div>
+ ${barCard('依分類',tally(yb,b=>catName(b.category_id)))}${barCard('依閱讀媒介',tally(yb,b=>FMT[b.reading_format]))}${barCard('依取得方式',tally(yb,b=>OWN[b.ownership_status]))}`;
 }
 function addPage(){
  return `<h1>新增書籍</h1>
@@ -155,6 +202,7 @@ function addPage(){
 function render(){
  $('#app').innerHTML={home,books:booksPage,sum:sumPage,add:addPage}[tab]();
  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===tab));
+ if(tab==='sum'&&sv==='car')bindCar();
 }
 const openSheet=h=>{$('#panel').innerHTML=h;$('#sheet').classList.add('open');$('#panel').scrollTop=0};
 const closeSheet=()=>{$('#sheet').classList.remove('open');editing=null;nEdit=qEdit=null};
@@ -391,6 +439,8 @@ document.addEventListener('click',async e=>{
  else if(a==='qedit'&&b){qEdit=t.dataset.x;showDetail(b.book_id);$('#q_txt').focus()}
  else if(a==='qcancel'&&b){qEdit=null;showDetail(b.book_id)}
  else if(a==='qdel'&&b){if(confirm('刪除這句金句？'))upd(b,x=>{x.quotes=x.quotes.filter(z=>z.quote_id!==t.dataset.x)})}
+ else if(a==='month')monthSheet(+t.dataset.m);
+ else if(a==='sv'){sv=t.dataset.v;render()}
  else if(a==='cam')$('#f_cam').click();
  else if(a==='pic')$('#f_pic').click();
  else if(a==='o_clear'){ocr=null;render()}
